@@ -536,16 +536,21 @@ const Config = (() => {
     // etheral souding, slow-moving major progression with chord tones only
     王道進行: {
       name: '王道進行',
-      ratios: createSmoothRatios(25, 1, 2),
-      scale: 'major',
+      ratios: [
+        ...createSmoothRatios(10, 1, 2),
+        ...createSmoothRatios(10, 1, 2),
+      ],
+      scale: 'chromatic',
       rootNote: 'C3',
       maxNote: 'C7',
-      bpm: 3,
+      bpm: 12,
       description: 'Slow progression through royal road chords',
-      chordRatio: 1,
+      // chord ratio is how much the chord changes, 1 means every beat, 0.5 means every 2 beats, for 4/4 time: 1 = every measure, 0.5 = every 2 measures, 0.25 = every 4 measures, etc.
+      chordRatio: 0.25,
       chordProgression: ['FMaj7', 'G7', 'Em7', 'Am7'],
       chordTonesOnly: true,
       ambientOctave: 0,
+      visualPhasePattern: 'opposites',
     },
     slowMajor: {
       name: 'Slow Major Progression',
@@ -577,12 +582,12 @@ const Config = (() => {
 
     giantSteps: {
       name: 'Giant Steps',
-      ratios: [...createSmoothRatios(15, 1, 2)],
+      ratios: [...createSmoothRatios(15, 0.25, 0.5)],
       scale: 'chromatic',
       rootNote: 'C2',
-      bpm: 10,
+      bpm: 40,
       description: 'Giant Steps-inspired progression with 10 voices',
-      chordRatio: 1,
+      chordRatio: 0.25,
       maxNote: 'C6',
       chordTonesOnly: true,
       ambientOctave: -1,
@@ -623,6 +628,7 @@ const Config = (() => {
         'FMin7',
         'Bb7',
       ],
+      visualPhasePattern: 'spiral',
     },
     extremelyFrickingSlow: {
       name: 'Extremely Fricking Slow',
