@@ -13,6 +13,8 @@
   let currentPresetKey = firstPresetKey;
   let currentSceneKey = 'circular-orbits';
   let currentChordIndex = 0;
+  let ambientLayer;
+  let currentResolutionBeats = 1;
   let started = false;
 
   // ── DOM References ──
@@ -123,10 +125,17 @@
             const maxMidi = preset.maxNote ? Config.noteNameToMidi(preset.maxNote) : null;
             const newNotes = Config.getNotesForScale(newRootMidi, preset.scale, engine.voices.length, maxMidi);
             
-            // Update voices
+            // Update voices (Harmony)
             engine.voices.forEach((voice, i) => {
               voice.note = newNotes[i];
             });
+            
+            // Trigger Ambient Pad
+            if (ambientLayer) {
+                // Get a 4-note chord based on new root
+                const padNotes = Config.getNotesForScale(newRootMidi, preset.scale, 4);
+                ambientLayer.playChord(padNotes);
+            }
             
             // Update UI
             infoPreset.textContent = `${preset.name} (${newRootName})`;
@@ -180,6 +189,14 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
             p.textAlign(p.LEFT, p.TOP);
             p.text(p.debugInfoStr, 20, 20);
             p.pop();
+        }
+
+        // Update Progress Bar
+        const progBar = document.getElementById('resolution-progress-fill');
+        if (progBar && currentResolutionBeats > 0) {
+            // cycle progress = (elapsed % total) / total
+            const progress = (engine.elapsedBeats % currentResolutionBeats) / currentResolutionBeats;
+            progBar.style.width = `${progress * 100}%`;
         }
       };
 
@@ -284,7 +301,7 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
 
   // ── Advanced Controls ──
   const advancedBtn = document.getElementById('advanced-btn');
-  const advancedModal = document.getElementById('advanced-modal');
+  const sidebar = document.getElementById('advanced-sidebar');
   const closeAdvanced = document.getElementById('close-advanced');
   const applyCustomBtn = document.getElementById('apply-custom-btn');
   const advScale = document.getElementById('adv-scale');
@@ -298,16 +315,12 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
   });
 
   advancedBtn.addEventListener('click', () => {
-    advancedModal.classList.remove('hidden');
+    sidebar.classList.add('open');
     controlsPanel.classList.remove('open'); 
   });
 
   closeAdvanced.addEventListener('click', () => {
-    advancedModal.classList.add('hidden');
-  });
-  
-  advancedModal.addEventListener('click', (e) => {
-    if (e.target === advancedModal) advancedModal.classList.add('hidden');
+    sidebar.classList.remove('open');
   });
 
   // Range updates
@@ -317,12 +330,49 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
     el.addEventListener('input', () => val.textContent = el.value);
   });
 
-  document.getElementById('adv-ratio-start').addEventListener('input', (e) => {
-    document.getElementById('adv-ratio-start-val').textContent = e.target.value;
+  // Removed invalid listeners for ratio-start/end-val since they don't exist in new UI
+
+  // ── Resolution Calculation ──
+  const resolutionDisplay = document.getElementById('resolution-display');
+  function updateResolution() {
+    const count = parseInt(document.getElementById('adv-voice-count').value);
+    const rStart = parseFloat(document.getElementById('adv-ratio-start').value);
+    const rEnd = parseFloat(document.getElementById('adv-ratio-end').value);
+    const bpm = parseFloat(bpmSlider.value) || 60;
+    
+    if (isNaN(count)) return;
+    
+    const ratios = Config.createSmoothRatios(count, rStart, rEnd);
+    const beats = Config.getPolyrhythmResolution(ratios);
+    
+    currentResolutionBeats = beats || 1;
+    
+    if (!beats) {
+       resolutionDisplay.textContent = 'Resolution: N/A';
+       return;
+    }
+    
+    const seconds = beats * (60 / bpm);
+    let timeStr = '';
+    if (seconds > 31536000) timeStr = '> 1 year';
+    else if (seconds > 86400) timeStr = `${(seconds/86400).toFixed(1)} days`;
+    else if (seconds > 3600) timeStr = `${(seconds/3600).toFixed(1)}h`;
+    else if (seconds > 60) timeStr = `${(seconds/60).toFixed(1)}m`;
+    else timeStr = `${seconds.toFixed(1)}s`;
+    
+    // Check if excessively large
+    if (beats > 1e9) resolutionDisplay.textContent = 'Cycle: Effectively Infinite';
+    else resolutionDisplay.textContent = `Resolves in ${beats.toLocaleString()} beats (${timeStr})`;
+  }
+
+  // Attach listeners for resolution update
+  ['adv-voice-count', 'adv-ratio-start', 'adv-ratio-end'].forEach(id => {
+      document.getElementById(id).addEventListener('input', updateResolution);
   });
-  document.getElementById('adv-ratio-end').addEventListener('input', (e) => {
-    document.getElementById('adv-ratio-end-val').textContent = e.target.value;
-  });
+  bpmSlider.addEventListener('input', updateResolution);
+  bpmNumber.addEventListener('input', updateResolution);
+  // Init
+  updateResolution();
 
   // Apply Custom Config
   applyCustomBtn.addEventListener('click', async () => {
@@ -398,7 +448,7 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
       renderer.setScene(currentSceneKey, engine.voices, renderer.p.width, renderer.p.height);
     }
     
-    advancedModal.classList.add('hidden');
+    // Sidebar stays open for rapid iteration
     if (!engine.isRunning) engine.start();
   });
 })();

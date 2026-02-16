@@ -30,7 +30,15 @@ const SCALES = {
   
   // --- EXOTIC ---
   doubleHarmonic:  { name: 'Double Harmonic',  intervals: [0, 1, 4, 5, 7, 8, 11] }, // "Misirlou" scale
-  hirajoshi:       { name: 'Hirajoshi',        intervals: [0, 2, 3, 7, 8] },        // Japanese pentatonic
+  hirajoshi: { name: 'Hirajoshi', intervals: [0, 2, 3, 7, 8] },        // Japanese pentatonic
+  // chords
+  majorChord: { name: 'Major Chord', intervals: [0, 4, 7] },
+  minorChord: { name: 'Minor Chord', intervals: [0, 3, 7] },
+  dominant7thChord: { name: 'Dominant 7th Chord', intervals: [0, 4, 7, 10] },
+  minor7thChord: { name: 'Minor 7th Chord', intervals: [0, 3, 7, 10] },
+  major7thChord: { name: 'Major 7th Chord', intervals: [0, 4, 7, 11] },
+  diminishedChord: { name: 'Diminished Chord', intervals: [0, 3, 6] },
+  augmentedChord: { name: 'Augmented Chord', intervals: [0, 4, 8] },
 };
 
   // ── MIDI helpers ──
@@ -173,6 +181,49 @@ const SCALES = {
     };
   }
 
+  // ── Math Helpers ──
+  const gcd = (a, b) => {
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return 1;
+    a = Math.abs(a);
+    b = Math.abs(b);
+    while (b) {
+      const t = b;
+      b = a % b;
+      a = t;
+    }
+    return a;
+  };
+  const lcm = (a, b) => {
+      if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
+      if (a === 0 || b === 0) return 0;
+      return Math.abs((a * b) / gcd(a, b));
+  };
+
+  function getPolyrhythmResolution(ratios) {
+    if (!ratios || ratios.length === 0) return 0;
+    
+    // Convert ratios (freq) to Period Fractions (1/freq)
+    // ratio = n/d. Period = d/n.
+    const periods = ratios.map(r => {
+       // Approximate ratio as fraction (max denom 100000 for "daily" cycles)
+       const D = 100000;
+       const N = Math.round(r * D);
+       const common = gcd(N, D);
+       return { n: D/common, d: N/common }; // Period = 1/r = D/N
+    });
+    
+    // LCM(n1/d1, n2/d2) = LCM(n1, n2) / GCD(d1, d2)
+    let num = periods[0].n;
+    let den = periods[0].d;
+    
+    for (let i = 1; i < periods.length; i++) {
+        num = lcm(num, periods[i].n);
+        den = gcd(den, periods[i].d);
+    }
+    
+    return num / den; // Total Beats
+  }
+
   return {
     SCALES,
     PRESETS,
@@ -183,5 +234,6 @@ const SCALES = {
     generateColors,
     buildVoiceConfig,
     createSmoothRatios,
+    getPolyrhythmResolution,
   };
 })();
