@@ -1,72 +1,124 @@
 class AmbientLayer {
   constructor() {
+    this.disposed = false;
+    this._buildChain();
+    this.currentNotes = [];
+  }
+
+  /** Build the entire audio chain from scratch */
+  _buildChain() {
     // PolySynth for chords
     this.synth = new Tone.PolySynth(Tone.Synth, {
+      maxPolyphony: 8,
       oscillator: {
-        type: "fatsine", // Richer sound
+        type: 'fatsine',
         count: 3,
-        spread: 30
+        spread: 30,
       },
       envelope: {
         attack: 2,
         decay: 1,
         sustain: 0.7,
-        release: 3
-      }
+        release: 3,
+      },
     });
 
     // Effects chain
-    this.filter = new Tone.Filter(800, "lowpass");
+    this.filter = new Tone.Filter(800, 'lowpass');
     this.reverb = new Tone.Reverb({
       decay: 5,
       preDelay: 0.2,
-      wet: 0.6
+      wet: 0.6,
     });
-    this.chorus = new Tone.Chorus(2, 3, 0.4).start(); // Frequency, DelayTime, Depth
-    this.vol = new Tone.Volume(-15); // Quiet background
+    this.chorus = new Tone.Chorus(2, 3, 0.4).start();
+    this.vol = new Tone.Volume(-15);
 
-    // Connect
+    // Connect: synth → filter → chorus → reverb → vol → destination
     this.synth.connect(this.filter);
     this.filter.connect(this.chorus);
     this.chorus.connect(this.reverb);
     this.reverb.connect(this.vol);
     this.vol.toDestination();
-
-    this.currentNotes = [];
   }
 
   playChord(notes) {
+    if (this.disposed) return;
     if (!notes || notes.length === 0) return;
 
-    // Release previous chord smoothly
-    if (this.currentNotes.length > 0) {
-      this.synth.triggerRelease(this.currentNotes);
+    // Always release ALL currently sounding notes first
+    try {
+      this.synth.releaseAll();
+    } catch (e) {
+      /* ignore */
     }
 
     // Transpose down 1 octave for deep pad sound
-    // Check if notes are frequencies or note names
-    // If we get frequencies (numbers), we can just multiply by 0.5?
-    // Tone.Frequency handles both.
-    
     try {
-        const lowerNotes = notes.map(n => {
-            // Ensure n is valid
-            return Tone.Frequency(n).transpose(-12);
-        });
-        
-        this.currentNotes = lowerNotes;
-        this.synth.triggerAttack(this.currentNotes);
+      const lowerNotes = notes.map((n) => {
+        if (n && typeof n === 'object' && n.frequency) {
+          return Tone.Frequency(n.frequency).transpose(-12).toFrequency();
+        }
+        return Tone.Frequency(n).transpose(-12).toFrequency();
+      });
+
+      this.currentNotes = lowerNotes;
+      this.synth.triggerAttack(this.currentNotes);
     } catch (e) {
-        console.warn("AmbientLayer Error:", e);
+      console.warn('AmbientLayer playChord error:', e);
     }
   }
 
   stop() {
-    this.synth.releaseAll();
+    if (this.disposed) return;
+    try {
+      this.synth.releaseAll();
+    } catch (e) {
+      /* ignore */
+    }
     this.currentNotes = [];
   }
 
-  setVolume(db) {
-    this.vol.volume.rampTo(db, 0.1);
+  /**
+   * Set volume as a 0–100 percent value (matches the main volume slider).
+   * Maps 0–100 → -60 dB to -5 dB (ambient should always sit underneath).
+   * 0 → muted.
+   */
+  setVolume(percent) {
+    if (this.disposed || !this.vol) return;
+    if (percent <= 0) {
+      this.vol.volume.value = -Infinity;
+    } else {
+      // Map 0-100 to -55 dB to -5 dB (sits below the main synths)
+      this.vol.volume.value = -55 + (percent / 100) * 50;
+    }
+  }
+
+  /** Tear down all Tone nodes so nothing keeps playing. */
+  dispose() {
+    this.disposed = true;
+    try {
+      this.synth.releaseAll();
+    } catch (e) {}
+    try {
+      this.synth.dispose();
+    } catch (e) {}
+    try {
+      this.filter.dispose();
+    } catch (e) {}
+    try {
+      this.chorus.dispose();
+    } catch (e) {}
+    try {
+      this.reverb.dispose();
+    } catch (e) {}
+    try {
+      this.vol.dispose();
+    } catch (e) {}
+    this.synth = null;
+    this.filter = null;
+    this.chorus = null;
+    this.reverb = null;
+    this.vol = null;
+    this.currentNotes = [];
   }
 }

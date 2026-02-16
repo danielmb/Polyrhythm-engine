@@ -44,7 +44,6 @@
     presetSelect.appendChild(opt);
   });
 
-  
   // ── Build engine + audio from preset ──
   function buildFromPreset(presetKey) {
     console.log('Build from preset', presetKey);
@@ -72,9 +71,14 @@
     bpmValue.textContent = cfg.preset.bpm;
 
     // Update info
-    infoPreset.textContent = cfg.preset.chordProgression 
-      ? `${cfg.preset.name} (${cfg.preset.chordProgression[0]})`
-      : cfg.preset.name;
+    if (cfg.preset.chordProgression && cfg.preset.chordProgression.length > 0) {
+      const firstParsed = Config.parseChordSymbol(
+        cfg.preset.chordProgression[0],
+      );
+      infoPreset.textContent = `${cfg.preset.name} (${firstParsed.displayName})`;
+    } else {
+      infoPreset.textContent = cfg.preset.name;
+    }
 
     return cfg;
   }
@@ -92,9 +96,37 @@
 
     // Build audio layer
     audioLayer = new AudioLayer();
-    console.log(engine);
     await audioLayer.init(engine.voices);
     audioLayer.setVolume(parseInt(volumeSlider.value));
+
+    // Build ambient layer
+    ambientLayer = new AmbientLayer();
+    ambientLayer.setVolume(parseInt(volumeSlider.value));
+
+    // Trigger initial chord if exists
+    const preset = Config.PRESETS[currentPresetKey];
+    if (preset?.chordProgression?.length > 0) {
+      const parsed = Config.parseChordSymbol(preset.chordProgression[0]);
+      const padNotes = Config.getChordNotes(
+        parsed.rootMidi,
+        parsed.chordTypeKey,
+      );
+      ambientLayer.playChord(padNotes);
+
+      // Re-tune voices to the initial chord tones
+      const maxMidi = preset.maxNote
+        ? Config.noteNameToMidi(preset.maxNote)
+        : null;
+      const chordVoiceNotes = Config.getVoiceNotesFromChord(
+        parsed.rootMidi,
+        parsed.chordTypeKey,
+        engine.voices.length,
+        maxMidi,
+      );
+      engine.voices.forEach((v, i) => {
+        v.note = chordVoiceNotes[i];
+      });
+    }
 
     // Build renderer
     renderer = new Renderer();
@@ -119,26 +151,36 @@
         if (engine.chordTriggered) {
           const preset = Config.PRESETS[currentPresetKey];
           if (preset.chordProgression && preset.chordProgression.length > 0) {
-            currentChordIndex = (currentChordIndex + 1) % preset.chordProgression.length;
-            const newRootName = preset.chordProgression[currentChordIndex];
-            const newRootMidi = Config.noteNameToMidi(newRootName);
-            const maxMidi = preset.maxNote ? Config.noteNameToMidi(preset.maxNote) : null;
-            const newNotes = Config.getNotesForScale(newRootMidi, preset.scale, engine.voices.length, maxMidi);
-            
-            // Update voices (Harmony)
-            engine.voices.forEach((voice, i) => {
-              voice.note = newNotes[i];
+            currentChordIndex =
+              (currentChordIndex + 1) % preset.chordProgression.length;
+            const chordSymbol = preset.chordProgression[currentChordIndex];
+            const parsed = Config.parseChordSymbol(chordSymbol);
+            const maxMidi = preset.maxNote
+              ? Config.noteNameToMidi(preset.maxNote)
+              : null;
+
+            // Re-tune all voices to the new chord's tones
+            const chordVoiceNotes = Config.getVoiceNotesFromChord(
+              parsed.rootMidi,
+              parsed.chordTypeKey,
+              engine.voices.length,
+              maxMidi,
+            );
+            engine.voices.forEach((v, i) => {
+              v.note = chordVoiceNotes[i];
             });
-            
-            // Trigger Ambient Pad
+
+            // Trigger Ambient Pad with the chord
             if (ambientLayer) {
-                // Get a 4-note chord based on new root
-                const padNotes = Config.getNotesForScale(newRootMidi, preset.scale, 4);
-                ambientLayer.playChord(padNotes);
+              const padNotes = Config.getChordNotes(
+                parsed.rootMidi,
+                parsed.chordTypeKey,
+              );
+              ambientLayer.playChord(padNotes);
             }
-            
-            // Update UI
-            infoPreset.textContent = `${preset.name} (${newRootName})`;
+
+            // Update UI (Show chord symbol)
+            infoPreset.textContent = `${preset.name} (${parsed.displayName})`;
           }
         }
 
@@ -149,8 +191,8 @@
         if (renderer) {
           const preset = Config.PRESETS[currentPresetKey];
           const options = {
-            easing: preset ? (preset.easing || 'sine') : 'sine',
-            elapsedBeats: engine.elapsedBeats
+            easing: preset ? preset.easing || 'sine' : 'sine',
+            elapsedBeats: engine.elapsedBeats,
           };
           renderer.draw(p, engine.voices, p.width, p.height, options);
         }
@@ -160,11 +202,12 @@
 
         // ── Debug Info (Canvas Overlay) ──
         if (p.frameCount % 10 === 0) {
-            const preset = Config.PRESETS[currentPresetKey];
-            const chordName = preset?.chordProgression?.[currentChordIndex] || 'N/A';
-            const fps = p.frameRate().toFixed(0);
-            
-            p.debugInfoStr = `FPS:     ${fps}
+          const preset = Config.PRESETS[currentPresetKey];
+          const chordName =
+            preset?.chordProgression?.[currentChordIndex] || 'N/A';
+          const fps = p.frameRate().toFixed(0);
+
+          p.debugInfoStr = `FPS:     ${fps}
 Time:    ${engine.getElapsedFormatted()}
 Beats:   ${engine.elapsedBeats.toFixed(1)}
 BPM:     ${engine.bpm}
@@ -176,27 +219,29 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
         }
 
         if (p.debugInfoStr) {
-            p.push();
-            p.resetMatrix();
-            p.fill(0, 0, 0, 80); // Semi-transparent bg
-            p.noStroke();
-            p.rect(10, 10, 240, 150, 4);
-            
-            p.fill(0, 0, 100);
-            p.noStroke();
-            p.textSize(11);
-            p.textFont('monospace');
-            p.textAlign(p.LEFT, p.TOP);
-            p.text(p.debugInfoStr, 20, 20);
-            p.pop();
+          p.push();
+          p.resetMatrix();
+          p.fill(0, 0, 0, 80); // Semi-transparent bg
+          p.noStroke();
+          p.rect(10, 10, 240, 150, 4);
+
+          p.fill(0, 0, 100);
+          p.noStroke();
+          p.textSize(11);
+          p.textFont('monospace');
+          p.textAlign(p.LEFT, p.TOP);
+          p.text(p.debugInfoStr, 20, 20);
+          p.pop();
         }
 
         // Update Progress Bar
         const progBar = document.getElementById('resolution-progress-fill');
         if (progBar && currentResolutionBeats > 0) {
-            // cycle progress = (elapsed % total) / total
-            const progress = (engine.elapsedBeats % currentResolutionBeats) / currentResolutionBeats;
-            progBar.style.width = `${progress * 100}%`;
+          // cycle progress = (elapsed % total) / total
+          const progress =
+            (engine.elapsedBeats % currentResolutionBeats) /
+            currentResolutionBeats;
+          progBar.style.width = `${progress * 100}%`;
         }
       };
 
@@ -231,7 +276,10 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
 
   // Close controls when clicking outside
   document.addEventListener('click', (e) => {
-    if (!controlsEl.contains(e.target) && controlsPanel.classList.contains('open')) {
+    if (
+      !controlsEl.contains(e.target) &&
+      controlsPanel.classList.contains('open')
+    ) {
       controlsPanel.classList.remove('open');
     }
   });
@@ -246,8 +294,46 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
       audioLayer.setVolume(parseInt(volumeSlider.value));
     }
 
+    // Dispose old ambient layer and create a fresh one
+    if (ambientLayer) {
+      ambientLayer.dispose();
+      ambientLayer = null;
+    }
+    ambientLayer = new AmbientLayer();
+    ambientLayer.setVolume(parseInt(volumeSlider.value));
+
+    // Trigger initial ambient chord for new preset
+    const preset = Config.PRESETS[key];
+    if (preset?.chordProgression?.length > 0) {
+      const parsed = Config.parseChordSymbol(preset.chordProgression[0]);
+      const padNotes = Config.getChordNotes(
+        parsed.rootMidi,
+        parsed.chordTypeKey,
+      );
+      ambientLayer.playChord(padNotes);
+
+      // Re-tune voices to the initial chord
+      const maxMidi = preset.maxNote
+        ? Config.noteNameToMidi(preset.maxNote)
+        : null;
+      const chordVoiceNotes = Config.getVoiceNotesFromChord(
+        parsed.rootMidi,
+        parsed.chordTypeKey,
+        engine.voices.length,
+        maxMidi,
+      );
+      engine.voices.forEach((v, i) => {
+        v.note = chordVoiceNotes[i];
+      });
+    }
+
     if (renderer && renderer.p) {
-      renderer.setScene(currentSceneKey, engine.voices, renderer.p.width, renderer.p.height);
+      renderer.setScene(
+        currentSceneKey,
+        engine.voices,
+        renderer.p.width,
+        renderer.p.height,
+      );
     }
 
     // Restart engine
@@ -259,7 +345,12 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
   sceneSelect.addEventListener('change', (e) => {
     currentSceneKey = e.target.value;
     if (renderer && renderer.p) {
-      renderer.setScene(currentSceneKey, engine.voices, renderer.p.width, renderer.p.height);
+      renderer.setScene(
+        currentSceneKey,
+        engine.voices,
+        renderer.p.width,
+        renderer.p.height,
+      );
     }
   });
 
@@ -290,6 +381,7 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
     const vol = parseFloat(e.target.value);
     volumeValue.textContent = vol;
     if (audioLayer) audioLayer.setVolume(vol);
+    if (ambientLayer) ambientLayer.setVolume(vol);
   });
 
   // ── Pause / Resume ──
@@ -297,6 +389,24 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
     if (!engine) return;
     engine.toggle();
     pauseBtn.textContent = engine.isRunning ? 'Pause' : 'Resume';
+
+    // Manage ambient
+    if (ambientLayer) {
+      if (!engine.isRunning) ambientLayer.stop();
+      else {
+        // Trigger currently active chord on resume
+        const preset = Config.PRESETS[currentPresetKey];
+        if (preset?.chordProgression?.length > 0) {
+          const chordSymbol = preset.chordProgression[currentChordIndex];
+          const parsed = Config.parseChordSymbol(chordSymbol);
+          const padNotes = Config.getChordNotes(
+            parsed.rootMidi,
+            parsed.chordTypeKey,
+          );
+          ambientLayer.playChord(padNotes);
+        }
+      }
+    }
   });
 
   // ── Advanced Controls ──
@@ -305,9 +415,9 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
   const closeAdvanced = document.getElementById('close-advanced');
   const applyCustomBtn = document.getElementById('apply-custom-btn');
   const advScale = document.getElementById('adv-scale');
-  
+
   // Populate Scale Dropdown
-  Object.keys(Config.SCALES).forEach(key => {
+  Object.keys(Config.SCALES).forEach((key) => {
     const opt = document.createElement('option');
     opt.value = key;
     opt.textContent = Config.SCALES[key].name;
@@ -316,7 +426,7 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
 
   advancedBtn.addEventListener('click', () => {
     sidebar.classList.add('open');
-    controlsPanel.classList.remove('open'); 
+    controlsPanel.classList.remove('open');
   });
 
   closeAdvanced.addEventListener('click', () => {
@@ -324,10 +434,10 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
   });
 
   // Range updates
-  ['adv-voice-count', 'adv-chord-ratio'].forEach(id => {
+  ['adv-voice-count', 'adv-chord-ratio'].forEach((id) => {
     const el = document.getElementById(id);
     const val = document.getElementById(id + '-val');
-    el.addEventListener('input', () => val.textContent = el.value);
+    el.addEventListener('input', () => (val.textContent = el.value));
   });
 
   // Removed invalid listeners for ratio-start/end-val since they don't exist in new UI
@@ -339,35 +449,37 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
     const rStart = parseFloat(document.getElementById('adv-ratio-start').value);
     const rEnd = parseFloat(document.getElementById('adv-ratio-end').value);
     const bpm = parseFloat(bpmSlider.value) || 60;
-    
+
     if (isNaN(count)) return;
-    
+
     const ratios = Config.createSmoothRatios(count, rStart, rEnd);
     const beats = Config.getPolyrhythmResolution(ratios);
-    
+
     currentResolutionBeats = beats || 1;
-    
+
     if (!beats) {
-       resolutionDisplay.textContent = 'Resolution: N/A';
-       return;
+      resolutionDisplay.textContent = 'Resolution: N/A';
+      return;
     }
-    
+
     const seconds = beats * (60 / bpm);
     let timeStr = '';
     if (seconds > 31536000) timeStr = '> 1 year';
-    else if (seconds > 86400) timeStr = `${(seconds/86400).toFixed(1)} days`;
-    else if (seconds > 3600) timeStr = `${(seconds/3600).toFixed(1)}h`;
-    else if (seconds > 60) timeStr = `${(seconds/60).toFixed(1)}m`;
+    else if (seconds > 86400) timeStr = `${(seconds / 86400).toFixed(1)} days`;
+    else if (seconds > 3600) timeStr = `${(seconds / 3600).toFixed(1)}h`;
+    else if (seconds > 60) timeStr = `${(seconds / 60).toFixed(1)}m`;
     else timeStr = `${seconds.toFixed(1)}s`;
-    
+
     // Check if excessively large
-    if (beats > 1e9) resolutionDisplay.textContent = 'Cycle: Effectively Infinite';
-    else resolutionDisplay.textContent = `Resolves in ${beats.toLocaleString()} beats (${timeStr})`;
+    if (beats > 1e9)
+      resolutionDisplay.textContent = 'Cycle: Effectively Infinite';
+    else
+      resolutionDisplay.textContent = `Resolves in ${beats.toLocaleString()} beats (${timeStr})`;
   }
 
   // Attach listeners for resolution update
-  ['adv-voice-count', 'adv-ratio-start', 'adv-ratio-end'].forEach(id => {
-      document.getElementById(id).addEventListener('input', updateResolution);
+  ['adv-voice-count', 'adv-ratio-start', 'adv-ratio-end'].forEach((id) => {
+    document.getElementById(id).addEventListener('input', updateResolution);
   });
   bpmSlider.addEventListener('input', updateResolution);
   bpmNumber.addEventListener('input', updateResolution);
@@ -379,41 +491,43 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
     const count = parseInt(document.getElementById('adv-voice-count').value);
     const rStart = parseFloat(document.getElementById('adv-ratio-start').value);
     const rEnd = parseFloat(document.getElementById('adv-ratio-end').value);
-    
+
     // Generate ratios
     const ratios = Config.createSmoothRatios(count, rStart, rEnd);
-    
+
     // Read Harmony
     const scaleKey = advScale.value;
     const easing = document.getElementById('adv-easing').value;
     const rootNote = document.getElementById('adv-root').value;
     const maxNote = document.getElementById('adv-max-note').value;
-    
+
     // Read Progression
-    const chordRatio = parseFloat(document.getElementById('adv-chord-ratio').value);
+    const chordRatio = parseFloat(
+      document.getElementById('adv-chord-ratio').value,
+    );
     const rawProg = document.getElementById('adv-progression').value;
-    const chordProgression = rawProg.split(/\s+/).filter(s => s.length > 0);
-    
+    const chordProgression = rawProg.split(/\s+/).filter((s) => s.length > 0);
+
     // Build Voice Config
     const rootMidi = Config.noteNameToMidi(rootNote);
     const maxMidi = maxNote ? Config.noteNameToMidi(maxNote) : null;
     const notes = Config.getNotesForScale(rootMidi, scaleKey, count, maxMidi);
     const colors = Config.generateColors(count);
-    
+
     const voices = ratios.map((ratio, i) => ({
       ratio,
       note: notes[i],
       color: colors[i],
     }));
-    
+
     // Apply to Engine
     engine.chordRatio = chordRatio;
     engine.setVoices(voices);
-    
+
     // Reset State
     currentPresetKey = 'custom';
     currentChordIndex = 0;
-    
+
     // Inject custom preset
     Config.PRESETS['custom'] = {
       name: 'Custom Configuration',
@@ -424,9 +538,9 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
       chordRatio,
       chordProgression,
       easing,
-      bpm: engine.bpm
+      bpm: engine.bpm,
     };
-    
+
     // Update UI
     let customOpt = presetSelect.querySelector('option[value="custom"]');
     if (!customOpt) {
@@ -436,18 +550,55 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
       presetSelect.appendChild(customOpt);
     }
     presetSelect.value = 'custom';
-    infoPreset.textContent = chordProgression.length > 0 
-      ? `Custom (${chordProgression[0]})` 
-      : 'Custom Configuration';
-    
+    if (chordProgression.length > 0) {
+      const firstParsed = Config.parseChordSymbol(chordProgression[0]);
+      infoPreset.textContent = `Custom (${firstParsed.displayName})`;
+    } else {
+      infoPreset.textContent = 'Custom Configuration';
+    }
+
     // Reinit Audio & Renderer
     await audioLayer.reinit(engine.voices);
     audioLayer.setVolume(parseInt(volumeSlider.value));
-    
+
     if (renderer && renderer.p) {
-      renderer.setScene(currentSceneKey, engine.voices, renderer.p.width, renderer.p.height);
+      renderer.setScene(
+        currentSceneKey,
+        engine.voices,
+        renderer.p.width,
+        renderer.p.height,
+      );
     }
-    
+
+    // Dispose old ambient layer and create a fresh one
+    if (ambientLayer) {
+      ambientLayer.dispose();
+      ambientLayer = null;
+    }
+    ambientLayer = new AmbientLayer();
+    ambientLayer.setVolume(parseInt(volumeSlider.value));
+
+    // Trigger initial ambient chord and re-tune voices
+    if (chordProgression.length > 0) {
+      const parsed = Config.parseChordSymbol(chordProgression[0]);
+      const padNotes = Config.getChordNotes(
+        parsed.rootMidi,
+        parsed.chordTypeKey,
+      );
+      ambientLayer.playChord(padNotes);
+
+      // Re-tune voices to the initial chord
+      const chordVoiceNotes = Config.getVoiceNotesFromChord(
+        parsed.rootMidi,
+        parsed.chordTypeKey,
+        engine.voices.length,
+        maxMidi,
+      );
+      engine.voices.forEach((v, i) => {
+        v.note = chordVoiceNotes[i];
+      });
+    }
+
     // Sidebar stays open for rapid iteration
     if (!engine.isRunning) engine.start();
   });
