@@ -47,17 +47,30 @@ const BouncingBoxesScene = {
     p.push();
     p.stroke(255, 255, 255, 8);
     p.strokeWeight(1);
-    p.line(spacing * 0.5, baseY + boxSize * 0.5 + 4, w - spacing * 0.5, baseY + boxSize * 0.5 + 4);
+    p.line(
+      spacing * 0.5,
+      baseY + boxSize * 0.5 + 4,
+      w - spacing * 0.5,
+      baseY + boxSize * 0.5 + 4,
+    );
     p.pop();
 
     // ── Draw boxes ──
     for (let i = 0; i < n; i++) {
       const voice = voices[i];
-      const cx = spacing * (i + 1);
+      const baseCx = spacing * (i + 1);
 
-      // Bounce: abs(sin) gives a bouncing ball curve
-      const bouncePhase = Math.abs(Math.sin(voice.phase * Math.PI));
-      const boxY = baseY - bouncePhase * bounceHeight;
+      // Spatial offset — shifts column position
+      const ofsX =
+        (voice.spatialOffset ? voice.spatialOffset.x : 0) * spacing * 1.2;
+      const ofsY = (voice.spatialOffset ? voice.spatialOffset.y : 0) * h * 0.15;
+      const cx = baseCx + ofsX;
+      const adjustedBaseY = baseY + ofsY;
+
+      // Apply visual phase offset — shifts starting position in the bounce
+      const visualPhase = (voice.phase + (voice.visualPhaseOffset || 0)) % 1;
+      const bouncePhase = Math.abs(Math.sin(visualPhase * Math.PI));
+      const boxY = adjustedBaseY - bouncePhase * bounceHeight;
 
       const [hue, sat, bri] = voice.color;
       const pulseSize = boxSize + voice.amplitude * boxSize * 0.3;
@@ -93,13 +106,21 @@ const BouncingBoxesScene = {
         for (let k = 0; k < count; k++) {
           this.particles.push({
             x: cx + (Math.random() - 0.5) * boxSize,
-            y: baseY,
+            y: adjustedBaseY,
             vx: (Math.random() - 0.5) * 3,
             vy: -Math.random() * 4 - 1,
             hue: hue,
             life: 0.7 + Math.random() * 0.3,
           });
         }
+
+        // Trigger line — vertical flash from ground to box
+        p.push();
+        p.colorMode(p.HSB, 360, 100, 100, 100);
+        p.stroke(hue, sat * 0.5, 100, 35);
+        p.strokeWeight(1.5);
+        p.line(cx, adjustedBaseY + boxSize * 0.5, cx, boxY);
+        p.pop();
       }
 
       // ── Column label glow at bottom ──
@@ -108,7 +129,12 @@ const BouncingBoxesScene = {
         p.colorMode(p.HSB, 360, 100, 100, 100);
         p.noStroke();
         p.fill(hue, sat * 0.4, bri, voice.amplitude * 25);
-        p.ellipse(cx, baseY + boxSize * 0.5 + 4, voice.amplitude * 60, 3);
+        p.ellipse(
+          cx,
+          adjustedBaseY + boxSize * 0.5 + 4,
+          voice.amplitude * 60,
+          3,
+        );
         p.pop();
       }
     }

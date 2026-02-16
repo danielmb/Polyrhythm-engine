@@ -5,7 +5,7 @@
 
 const CircularOrbitsScene = {
   name: 'Circular Orbits',
-  trails: [],     // ring trail history
+  trails: [], // ring trail history
   maxTrails: 150,
 
   setup(voices, w, h) {
@@ -23,16 +23,25 @@ const CircularOrbitsScene = {
     const n = voices.length;
     const maxRadius = Math.min(w, h) * 0.38;
     const minRadius = Math.min(w, h) * 0.1;
+    const spatialScale = maxRadius * 0.35; // how far offsets push the orbit center
 
-    // ── Draw orbit rings ──
+    // ── Draw actual orbit paths (offset circles) ──
     p.push();
     p.colorMode(p.HSB, 360, 100, 100, 100);
     p.noFill();
     for (let i = 0; i < n; i++) {
+      const voice = voices[i];
       const r = minRadius + (maxRadius - minRadius) * (i / Math.max(n - 1, 1));
-      p.stroke(voices[i].color[0], 15, 30, 8);
+      const ofsX =
+        (voice.spatialOffset ? voice.spatialOffset.x : 0) * spatialScale;
+      const ofsY =
+        (voice.spatialOffset ? voice.spatialOffset.y : 0) * spatialScale;
+      const orbitCx = cx + ofsX;
+      const orbitCy = cy + ofsY;
+
+      p.stroke(voice.color[0], 15, 30, 8);
       p.strokeWeight(0.8);
-      p.ellipse(cx, cy, r * 2, r * 2);
+      p.ellipse(orbitCx, orbitCy, r * 2, r * 2);
     }
     p.pop();
 
@@ -66,10 +75,21 @@ const CircularOrbitsScene = {
       const voice = voices[i];
       const r = minRadius + (maxRadius - minRadius) * (i / Math.max(n - 1, 1));
 
-      // Angle from phase (0 = top, clockwise)
-      const angle = voice.phase * Math.PI * 2 - Math.PI / 2;
-      const ox = cx + r * Math.cos(angle);
-      const oy = cy + r * Math.sin(angle);
+      // Spatial offset — shifts this voice's orbit center
+      const ofsX =
+        (voice.spatialOffset ? voice.spatialOffset.x : 0) * spatialScale;
+      const ofsY =
+        (voice.spatialOffset ? voice.spatialOffset.y : 0) * spatialScale;
+      const orbitCx = cx + ofsX;
+      const orbitCy = cy + ofsY;
+
+      // Phase offset — shifts starting position on the orbit
+      const visualPhase = (voice.phase + (voice.visualPhaseOffset || 0)) % 1;
+
+      // Angle from visual phase (0 = top, clockwise)
+      const angle = visualPhase * Math.PI * 2 - Math.PI / 2;
+      const ox = orbitCx + r * Math.cos(angle);
+      const oy = orbitCy + r * Math.sin(angle);
 
       const [hue, sat, bri] = voice.color;
       const baseSize = Math.min(w, h) * 0.02;
@@ -78,8 +98,11 @@ const CircularOrbitsScene = {
       // Leave trail
       if (this.trails.length < this.maxTrails) {
         this.trails.push({
-          x: ox, y: oy,
-          hue, sat, bri,
+          x: ox,
+          y: oy,
+          hue,
+          sat,
+          bri,
           size: size * 0.8,
           life: 0.6 + voice.amplitude * 0.4,
         });
@@ -107,9 +130,9 @@ const CircularOrbitsScene = {
 
       p.pop();
 
-      // ── Trigger flash (at 12 o'clock position) ──
+      // ── Trigger flash + line ──
       if (voice.triggered) {
-        // Flash at orbiter position
+        // Flash ring at orbiter position
         p.push();
         p.colorMode(p.HSB, 360, 100, 100, 100);
         p.noFill();
@@ -118,12 +141,20 @@ const CircularOrbitsScene = {
         p.ellipse(ox, oy, size * 4, size * 4);
         p.pop();
 
-        // Line to center
+        // Line from main center to hit point
         p.push();
         p.colorMode(p.HSB, 360, 100, 100, 100);
-        p.stroke(hue, sat * 0.3, bri, 15);
-        p.strokeWeight(0.8);
+        p.stroke(hue, sat * 0.5, 100, 40);
+        p.strokeWeight(1.5);
         p.line(cx, cy, ox, oy);
+        p.pop();
+
+        // Small flash at the main center
+        p.push();
+        p.colorMode(p.HSB, 360, 100, 100, 100);
+        p.noStroke();
+        p.fill(hue, sat * 0.3, 100, 25);
+        p.ellipse(cx, cy, 12, 12);
         p.pop();
       }
     }

@@ -36,14 +36,19 @@ const PendulumScene = {
 
     for (let i = 0; i < n; i++) {
       const voice = voices[i];
-      const cy = startY + i * spacing;
+      const baseY = startY + i * spacing;
+
+      // Spatial offset — shifts anchor point
+      const ofsX = (voice.spatialOffset ? voice.spatialOffset.x : 0) * w * 0.2;
+      const ofsY = (voice.spatialOffset ? voice.spatialOffset.y : 0) * h * 0.15;
+      const cy = baseY + ofsY;
+      const anchorX = cx + ofsX;
 
       // ── Calculate Normalized Position with Cycle Sync ──
-      // Default: Sync center crossing (0) with Trigger (phase 0/1)
-      // Visual Period = 2 * Audio Period
-      // TotalPhase = elapsedBeats * ratio
-      
-      const totalPhase = (options.elapsedBeats || 0) * voice.ratio;
+      // Apply visual phase offset — shifts starting position in the swing
+      const totalPhase =
+        (options.elapsedBeats || 0) * voice.ratio +
+        (voice.visualPhaseOffset || 0);
       let normPos = 0;
 
       if (easing === 'linear') {
@@ -51,9 +56,12 @@ const PendulumScene = {
         // Input: totalPhase (0..1..2)
         // p2 = totalPhase % 2.
         const p2 = totalPhase % 2;
-        if (p2 < 0.5) normPos = p2 * 2;         // 0 -> 1
-        else if (p2 < 1.0) normPos = 2 - p2 * 2; // 1 -> 0
-        else if (p2 < 1.5) normPos = -(p2 - 1) * 2; // 0 -> -1
+        if (p2 < 0.5)
+          normPos = p2 * 2; // 0 -> 1
+        else if (p2 < 1.0)
+          normPos = 2 - p2 * 2; // 1 -> 0
+        else if (p2 < 1.5)
+          normPos = -(p2 - 1) * 2; // 0 -> -1
         else normPos = -2 + (p2 - 1.5) * 2; // -1 -> 0
         // Wait, simplify:
         // p2 < 0.5: x
@@ -64,14 +72,14 @@ const PendulumScene = {
         // (x%2)-1 goes -1..0..1. abs goes 1..0..1. *2 goes 2..0..2. 1-val goes -1..1..-1.
         // Almost.
         // Let's stick to simple quadrants:
-        if (p2 < 0.5) normPos = p2 * 2; 
-        else if (p2 < 1.5) normPos = 2 - (p2 * 2); 
-        else normPos = (p2 * 2) - 4;
+        if (p2 < 0.5) normPos = p2 * 2;
+        else if (p2 < 1.5) normPos = 2 - p2 * 2;
+        else normPos = p2 * 2 - 4;
       } else if (easing === 'bounce') {
-         // Bounce: |sin(totalPhase * PI)|. 0 -> 1 -> 0.
-         // Always positive swing (one side) as requested "touch center".
-         // Touches center at integers.
-         normPos = Math.abs(Math.sin(totalPhase * Math.PI));
+        // Bounce: |sin(totalPhase * PI)|. 0 -> 1 -> 0.
+        // Always positive swing (one side) as requested "touch center".
+        // Touches center at integers.
+        normPos = Math.abs(Math.sin(totalPhase * Math.PI));
       } else {
         // Sine: sin(totalPhase * PI)
         // 0 -> 1 (p=0.5) -> 0 (p=1, TRIG) -> -1 (p=1.5) -> 0 (p=2, TRIG)
@@ -80,10 +88,10 @@ const PendulumScene = {
 
       const maxAngle = Math.PI * 0.55; // Wide swing
       const angle = normPos * maxAngle;
-      
-      const L = w * 0.4; 
 
-      const bobX = cx + Math.sin(angle) * L;
+      const L = w * 0.4;
+
+      const bobX = anchorX + Math.sin(angle) * L;
       const bobY = cy - L * (1 - Math.cos(angle));
 
       const visualY = bobY;
@@ -95,7 +103,7 @@ const PendulumScene = {
       p.colorMode(p.HSB, 360, 100, 100, 100);
       p.stroke(hue, sat * 0.4, bri * 0.3, 30);
       p.strokeWeight(1.5);
-      p.line(cx, cy, bobX, visualY);
+      p.line(anchorX, cy, bobX, visualY);
       p.pop();
 
       // ── Glow layers ──
@@ -116,23 +124,28 @@ const PendulumScene = {
 
       p.pop();
 
-      // ── Trigger Flash on Center Line ──
-      if (voice.triggered) { 
+      // ── Trigger Flash ──
+      if (voice.triggered) {
         p.push();
         p.colorMode(p.HSB, 360, 100, 100, 100);
-        
-        // Flash on center line
+
+        // Flash on center trigger line
         p.noStroke();
         p.fill(hue, sat * 0.2, 100, 60 * voice.amplitude);
-        p.ellipse(cx, cy, pulseRadius * 3, pulseRadius * 0.5); 
-        p.ellipse(cx, cy, pulseRadius * 0.5, pulseRadius * 3); 
+        p.ellipse(cx, cy, pulseRadius * 3, pulseRadius * 0.5);
+        p.ellipse(cx, cy, pulseRadius * 0.5, pulseRadius * 3);
+
+        // Line from center to bob at trigger
+        p.stroke(hue, sat * 0.5, 100, 40);
+        p.strokeWeight(1.5);
+        p.line(cx, cy, bobX, visualY);
 
         // Ring ripple at bob
         p.noFill();
         p.stroke(hue, sat * 0.5, 100, 60);
         p.strokeWeight(2);
         p.ellipse(bobX, visualY, pulseRadius * 3, pulseRadius * 3);
-        
+
         p.pop();
       }
     }

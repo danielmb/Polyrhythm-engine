@@ -96,6 +96,14 @@
             <option value="bounce">Bounce</option>
           </select>
         </div>
+        <div class="control-group">
+          <label>Phase Layout</label>
+          <select id="adv-offset-pattern"></select>
+        </div>
+        <div class="control-group">
+          <label>Orbit Shape</label>
+          <select id="adv-spatial-pattern"></select>
+        </div>
       </div>
 
       <div class="adv-section">
@@ -103,6 +111,11 @@
         <div class="control-group">
           <label>Scale</label>
           <select id="adv-scale"></select>
+        </div>
+        <div class="control-group" style="flex-direction: row; align-items: center; gap: 0.5rem;">
+          <input type="checkbox" id="adv-chord-tones-only" style="width: auto; accent-color: #7c7aff;">
+          <label for="adv-chord-tones-only" style="margin: 0; cursor: pointer; font-size: 0.85rem;">Chord tones
+            only</label>
         </div>
         <div class="row">
           <div class="control-group">
@@ -119,8 +132,12 @@
       <div class="adv-section">
         <h3>Progression</h3>
         <div class="control-group">
-          <label>Chord Ratio: <span id="adv-chord-ratio-val">0.05</span></label>
-          <input type="range" id="adv-chord-ratio" min="0" max="4" step="0.1" value="0.05">
+          <label>Ambient Octave: <span id="adv-ambient-octave-val">0</span></label>
+          <input type="range" id="adv-ambient-octave" min="-3" max="3" step="1" value="0">
+        </div>
+        <div class="control-group">
+          <label>Chord Ratio: <span id="adv-chord-ratio-val">1</span></label>
+          <input type="range" id="adv-chord-ratio" min="0" max="4" step="0.1" value="1">
         </div>
         <div class="control-group">
           <label>Chord Progression (space separated)</label>

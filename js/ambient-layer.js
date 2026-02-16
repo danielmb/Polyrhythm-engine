@@ -41,7 +41,7 @@ class AmbientLayer {
     this.vol.toDestination();
   }
 
-  playChord(notes) {
+  playChord(notes, transposeSemitones = 0) {
     if (this.disposed) return;
     if (!notes || notes.length === 0) return;
 
@@ -52,16 +52,18 @@ class AmbientLayer {
       /* ignore */
     }
 
-    // Transpose down 1 octave for deep pad sound
+    // Transpose by the given semitone offset
     try {
-      const lowerNotes = notes.map((n) => {
+      const transposedNotes = notes.map((n) => {
         if (n && typeof n === 'object' && n.frequency) {
-          return Tone.Frequency(n.frequency).transpose(-12).toFrequency();
+          return Tone.Frequency(n.frequency)
+            .transpose(transposeSemitones)
+            .toFrequency();
         }
-        return Tone.Frequency(n).transpose(-12).toFrequency();
+        return Tone.Frequency(n).transpose(transposeSemitones).toFrequency();
       });
 
-      this.currentNotes = lowerNotes;
+      this.currentNotes = transposedNotes;
       this.synth.triggerAttack(this.currentNotes);
     } catch (e) {
       console.warn('AmbientLayer playChord error:', e);

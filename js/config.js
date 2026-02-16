@@ -254,33 +254,37 @@ const Config = (() => {
   ) {
     const chord = CHORD_TYPES[chordTypeKey] || CHORD_TYPES['major'];
     const intervals = chord.intervals;
-    const notes = [];
+
+    // Build all valid chord tones within the range first
+    const pool = [];
     let octaveOffset = 0;
-    let idx = 0;
-
-    while (notes.length < count) {
-      let midi = rootMidi + octaveOffset * 12 + intervals[idx];
-
-      if (maxMidi && midi > maxMidi) {
-        const range = maxMidi - rootMidi;
-        if (range > 0) {
-          midi = rootMidi + ((midi - rootMidi) % range);
-        }
+    while (true) {
+      let added = false;
+      for (const interval of intervals) {
+        const midi = rootMidi + octaveOffset * 12 + interval;
+        if (maxMidi && midi > maxMidi) break;
+        pool.push(midi);
+        added = true;
       }
+      if (maxMidi && rootMidi + (octaveOffset + 1) * 12 > maxMidi && !added)
+        break;
+      if (!maxMidi && pool.length >= count) break;
+      if (maxMidi && !added) break;
+      octaveOffset++;
+    }
 
-      notes.push({
+    // If pool is empty (shouldn't happen), fallback to root
+    if (pool.length === 0) pool.push(rootMidi);
+
+    // Cycle through the pool to fill all voice slots
+    return Array.from({ length: count }, (_, i) => {
+      const midi = pool[i % pool.length];
+      return {
         midi,
         frequency: midiToFrequency(midi),
         name: midiToNoteName(midi),
-      });
-
-      idx++;
-      if (idx >= intervals.length) {
-        idx = 0;
-        octaveOffset++;
-      }
-    }
-    return notes;
+      };
+    });
   }
 
   // ── MIDI helpers ──
@@ -376,17 +380,212 @@ const Config = (() => {
     }
     return ratios;
   }
+  // ── Visual Phase Offset Patterns ──
+  // Each returns an array of phase offsets (0..1) for N voices.
+  // This shifts WHERE on the circle/swing each voice appears visually,
+  // without changing the sound timing.
+  const PHASE_PATTERNS = {
+    none: {
+      name: 'None (Aligned)',
+      fn: (count) => Array.from({ length: count }, () => 0),
+    },
+    spread: {
+      name: 'Even Spread',
+      fn: (count) => Array.from({ length: count }, (_, i) => i / count),
+    },
+    halfSpread: {
+      name: 'Half Spread',
+      fn: (count) => Array.from({ length: count }, (_, i) => (i / count) * 0.5),
+    },
+    opposites: {
+      name: 'Opposites',
+      fn: (count) => Array.from({ length: count }, (_, i) => (i % 2) * 0.5),
+    },
+    thirds: {
+      name: 'Thirds',
+      fn: (count) => Array.from({ length: count }, (_, i) => (i % 3) / 3),
+    },
+    quarters: {
+      name: 'Quarters',
+      fn: (count) => Array.from({ length: count }, (_, i) => (i % 4) / 4),
+    },
+    wave: {
+      name: 'Wave',
+      fn: (count) =>
+        Array.from({ length: count }, (_, i) => {
+          const t = i / Math.max(count - 1, 1);
+          return (Math.sin(t * Math.PI * 2) + 1) / 2; // 0..1
+        }),
+    },
+    spiral: {
+      name: 'Spiral',
+      fn: (count) =>
+        Array.from({ length: count }, (_, i) => {
+          // Golden ratio spacing — never repeats, creates spirals
+          return (i * 0.618033988749895) % 1;
+        }),
+    },
+    cluster: {
+      name: 'Cluster (grouped)',
+      fn: (count) => {
+        const groups = Math.min(3, count);
+        return Array.from({ length: count }, (_, i) => {
+          const group = i % groups;
+          return group / groups + Math.random() * 0.05; // tight clusters
+        });
+      },
+    },
+    mirror: {
+      name: 'Mirror',
+      fn: (count) =>
+        Array.from({ length: count }, (_, i) => {
+          const t = i / Math.max(count - 1, 1);
+          // First half goes 0 → 0.5, second half mirrors 0.5 → 0
+          return t <= 0.5 ? t : 1 - t;
+        }),
+    },
+    random: {
+      name: 'Random',
+      fn: (count) => Array.from({ length: count }, () => Math.random()),
+    },
+  };
+
+  /**
+   * Generate visual phase offsets for N voices using a pattern key.
+   * Returns array of numbers (0..1).
+   */
+  function generatePhaseOffsets(count, patternKey) {
+    const pattern = PHASE_PATTERNS[patternKey];
+    if (!pattern) return PHASE_PATTERNS.none.fn(count);
+    return pattern.fn(count);
+  }
+
+  // ── Spatial Offset Patterns ──
+  // Each returns an array of {x, y} in range -1..1.
+  // Shifts the CENTER of each voice's orbit, creating non-concentric paths.
+  const SPATIAL_PATTERNS = {
+    none: {
+      name: 'None (Centered)',
+      fn: (count) => Array.from({ length: count }, () => ({ x: 0, y: 0 })),
+    },
+    circle: {
+      name: 'Circle',
+      fn: (count) =>
+        Array.from({ length: count }, (_, i) => {
+          const angle = (i / count) * Math.PI * 2;
+          return { x: Math.cos(angle), y: Math.sin(angle) };
+        }),
+    },
+    wave: {
+      name: 'Wave',
+      fn: (count) =>
+        Array.from({ length: count }, (_, i) => {
+          const t = i / Math.max(count - 1, 1);
+          return { x: 0, y: Math.sin(t * Math.PI * 2) };
+        }),
+    },
+    spiral: {
+      name: 'Spiral',
+      fn: (count) =>
+        Array.from({ length: count }, (_, i) => {
+          const t = i / Math.max(count - 1, 1);
+          const angle = t * Math.PI * 4;
+          const r = 0.2 + t * 0.8;
+          return { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
+        }),
+    },
+    diagonal: {
+      name: 'Diagonal',
+      fn: (count) =>
+        Array.from({ length: count }, (_, i) => {
+          const t = i / Math.max(count - 1, 1);
+          return { x: t * 2 - 1, y: t * 2 - 1 };
+        }),
+    },
+    vShape: {
+      name: 'V-Shape',
+      fn: (count) =>
+        Array.from({ length: count }, (_, i) => {
+          const t = i / Math.max(count - 1, 1);
+          const x = t * 2 - 1;
+          return { x, y: Math.abs(x) - 0.5 };
+        }),
+    },
+    scatter: {
+      name: 'Scatter',
+      fn: (count) =>
+        Array.from({ length: count }, () => ({
+          x: Math.random() * 2 - 1,
+          y: Math.random() * 2 - 1,
+        })),
+    },
+  };
+
+  /**
+   * Generate spatial offsets for N voices using a pattern key.
+   * Returns array of {x, y} normalized to -1..1.
+   */
+  function generateSpatialOffsets(count, patternKey) {
+    const pattern = SPATIAL_PATTERNS[patternKey];
+    if (!pattern) return SPATIAL_PATTERNS.none.fn(count);
+    return pattern.fn(count);
+  }
+
   // ── Presets ──
   const PRESETS = {
+    // etheral souding, slow-moving major progression with chord tones only
+    王道進行: {
+      name: '王道進行',
+      ratios: createSmoothRatios(25, 1, 2),
+      scale: 'major',
+      rootNote: 'C3',
+      maxNote: 'C7',
+      bpm: 3,
+      description: 'Slow progression through royal road chords',
+      chordRatio: 1,
+      chordProgression: ['FMaj7', 'G7', 'Em7', 'Am7'],
+      chordTonesOnly: true,
+      ambientOctave: 0,
+    },
+    slowMajor: {
+      name: 'Slow Major Progression',
+      ratios: createSmoothRatios(25, 1, 2),
+      scale: 'major',
+      rootNote: 'C4',
+      maxNote: 'C7',
+      bpm: 3,
+      description: 'Slow progression through common chords',
+      chordRatio: 1,
+      chordProgression: ['CMaj7', 'Am7', 'FMaj7', 'G7'],
+      chordTonesOnly: true,
+      ambientOctave: 1,
+    },
+
+    // CMaj GMaj Am FMaj
+    simpleMajor: {
+      name: 'Fast Major Progression',
+      ratios: createSmoothRatios(8, 1, 1.5),
+      scale: 'major',
+      rootNote: 'C4',
+      bpm: 60,
+      description: 'Simple progression through common chords',
+      chordRatio: 1,
+      chordProgression: ['CMaj7', 'GMaj7', 'AMin7', 'FMaj7'],
+      chordTonesOnly: true,
+      ambientOctave: 1,
+    },
+
     giantSteps: {
       name: 'Giant Steps',
       ratios: [...createSmoothRatios(15, 1, 2)],
-      scale: 'major',
+      scale: 'chromatic',
       rootNote: 'C2',
-      bpm: 20,
+      bpm: 10,
       description: 'Giant Steps-inspired progression with 10 voices',
       chordRatio: 1,
-      maxNote: 'C7',
+      maxNote: 'C6',
+      chordTonesOnly: true,
+      ambientOctave: -1,
       chordProgression: [
         'BMaj7',
         'D7',
@@ -434,6 +633,10 @@ const Config = (() => {
       description: '10-voice, imperceptibly slow drift',
       chordRatio: 0.5,
       chordProgression: ['CMaj7', 'Am7', 'FMaj7', 'G7'],
+      chordTonesOnly: false,
+      ambientOctave: 0,
+      visualPhasePattern: 'opposites',
+      spatialPattern: 'none',
     },
     aMess: {
       name: 'A Mess',
@@ -444,6 +647,10 @@ const Config = (() => {
       description: '100-voice chromatic chaos',
       chordRatio: 2,
       chordProgression: ['C7', 'A7', 'F7', 'G7'],
+      chordTonesOnly: true,
+      ambientOctave: 0,
+      visualPhasePattern: 'spiral',
+      spatialPattern: 'spiral',
       maxNote: 'C6',
       easing: 'sine',
     },
@@ -456,6 +663,10 @@ const Config = (() => {
       description: '25-voice, imperceptibly slow drift',
       chordRatio: 1,
       chordProgression: ['Cm7', 'BbMaj7', 'Gm7', 'FMaj7', 'Em7', 'Dm7', 'Cm7'],
+      chordTonesOnly: false,
+      ambientOctave: 0,
+      visualPhasePattern: 'wave',
+      spatialPattern: 'wave',
       maxNote: 'C6',
     },
   };
@@ -468,19 +679,46 @@ const Config = (() => {
     if (!preset) return null;
     const rootMidi = noteNameToMidi(preset.rootNote);
     const maxMidi = preset.maxNote ? noteNameToMidi(preset.maxNote) : null;
-    const notes = getNotesForScale(
-      rootMidi,
-      preset.scale,
-      preset.ratios.length,
-      maxMidi,
-    );
+
+    // If chordTonesOnly and we have a chord progression, use the first chord's tones
+    let notes;
+    if (
+      preset.chordTonesOnly &&
+      preset.chordProgression &&
+      preset.chordProgression.length > 0
+    ) {
+      const parsed = parseChordSymbol(preset.chordProgression[0]);
+      notes = getVoiceNotesFromChord(
+        parsed.rootMidi,
+        parsed.chordTypeKey,
+        preset.ratios.length,
+        maxMidi,
+      );
+    } else {
+      notes = getNotesForScale(
+        rootMidi,
+        preset.scale,
+        preset.ratios.length,
+        maxMidi,
+      );
+    }
     const colors = generateColors(preset.ratios.length);
+    const phaseOffsets = generatePhaseOffsets(
+      preset.ratios.length,
+      preset.visualPhasePattern || 'none',
+    );
+    const spatialOffsets = generateSpatialOffsets(
+      preset.ratios.length,
+      preset.spatialPattern || 'none',
+    );
     return {
       preset,
       voices: preset.ratios.map((ratio, i) => ({
         ratio,
         note: notes[i],
         color: colors[i],
+        visualPhaseOffset: phaseOffsets[i],
+        spatialOffset: spatialOffsets[i],
       })),
     };
   }
@@ -532,6 +770,8 @@ const Config = (() => {
     SCALES,
     CHORD_TYPES,
     CHORD_SUFFIXES,
+    PHASE_PATTERNS,
+    SPATIAL_PATTERNS,
     PRESETS,
     noteNameToMidi,
     midiToFrequency,
@@ -541,6 +781,8 @@ const Config = (() => {
     getVoiceNotesFromChord,
     parseChordSymbol,
     generateColors,
+    generatePhaseOffsets,
+    generateSpatialOffsets,
     buildVoiceConfig,
     createSmoothRatios,
     getPolyrhythmResolution,

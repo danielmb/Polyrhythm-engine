@@ -36,8 +36,10 @@ class TimingEngine {
       triggered: false,
       triggerCooldown: 0,
       amplitude: 0,
-      note: cfg.note,         // { midi, frequency, name }
-      color: cfg.color,       // [h, s, b]
+      note: cfg.note, // { midi, frequency, name }
+      color: cfg.color, // [h, s, b]
+      visualPhaseOffset: cfg.visualPhaseOffset || 0, // 0..1 visual starting position
+      spatialOffset: cfg.spatialOffset || { x: 0, y: 0 }, // {x,y} -1..1 orbit center offset
     }));
   }
 
@@ -63,11 +65,11 @@ class TimingEngine {
     if (this.isRunning) {
       const now = performance.now();
       const elapsedMs = now - this.startTime;
-      const currentBeats = elapsedMs / 1000 * (this.bpm / 60);
+      const currentBeats = (elapsedMs / 1000) * (this.bpm / 60);
       // New startTime so that at the new BPM, elapsedBeats stays the same
       this.startTime = now - (currentBeats / (bpm / 60)) * 1000;
     } else {
-      const currentBeats = this.pausedElapsed / 1000 * (this.bpm / 60);
+      const currentBeats = (this.pausedElapsed / 1000) * (this.bpm / 60);
       this.pausedElapsed = (currentBeats / (bpm / 60)) * 1000;
     }
     this.bpm = bpm;
@@ -92,7 +94,7 @@ class TimingEngine {
 
     const now = performance.now();
     const elapsedMs = now - this.startTime;
-    this.elapsedBeats = elapsedMs / 1000 * (this.bpm / 60);
+    this.elapsedBeats = (elapsedMs / 1000) * (this.bpm / 60);
 
     // ── Chord Progression Trigger ──
     if (this.chordRatio > 0) {

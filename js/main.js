@@ -17,6 +17,37 @@
   let currentResolutionBeats = 1;
   let started = false;
 
+  /**
+   * Re-tune voice notes based on a parsed chord and the current mode.
+   * Uses preset.chordTonesOnly as the source of truth (synced with checkbox).
+   */
+  function retuneVoices(parsed, preset, voiceCount) {
+    const maxMidi = preset.maxNote
+      ? Config.noteNameToMidi(preset.maxNote)
+      : null;
+    const useChordTones = preset.chordTonesOnly || false;
+
+    let notes;
+    if (useChordTones) {
+      notes = Config.getVoiceNotesFromChord(
+        parsed.rootMidi,
+        parsed.chordTypeKey,
+        voiceCount,
+        maxMidi,
+      );
+    } else {
+      notes = Config.getNotesForScale(
+        parsed.rootMidi,
+        preset.scale,
+        voiceCount,
+        maxMidi,
+      );
+    }
+    engine.voices.forEach((v, i) => {
+      v.note = notes[i];
+    });
+  }
+
   // ── DOM References ──
   const startOverlay = document.getElementById('start-overlay');
   const startBtn = document.getElementById('start-btn');
@@ -80,6 +111,32 @@
       infoPreset.textContent = cfg.preset.name;
     }
 
+    // Sync UI controls with preset
+    const ctoCheckbox = document.getElementById('adv-chord-tones-only');
+    const scaleDropdown = document.getElementById('adv-scale');
+    const ofsDropdown = document.getElementById('adv-offset-pattern');
+    if (ctoCheckbox) {
+      ctoCheckbox.checked = !!cfg.preset.chordTonesOnly;
+      if (scaleDropdown) {
+        scaleDropdown.disabled = ctoCheckbox.checked;
+        scaleDropdown.style.opacity = ctoCheckbox.checked ? '0.4' : '1';
+      }
+    }
+    if (ofsDropdown) {
+      ofsDropdown.value = cfg.preset.visualPhasePattern || 'none';
+    }
+    const spatDropdown = document.getElementById('adv-spatial-pattern');
+    if (spatDropdown) {
+      spatDropdown.value = cfg.preset.spatialPattern || 'none';
+    }
+    const ambOctSlider = document.getElementById('adv-ambient-octave');
+    const ambOctVal = document.getElementById('adv-ambient-octave-val');
+    if (ambOctSlider) {
+      const oct = cfg.preset.ambientOctave ?? 0;
+      ambOctSlider.value = oct;
+      if (ambOctVal) ambOctVal.textContent = oct > 0 ? `+${oct}` : oct;
+    }
+
     return cfg;
   }
 
@@ -111,21 +168,10 @@
         parsed.rootMidi,
         parsed.chordTypeKey,
       );
-      ambientLayer.playChord(padNotes);
+      ambientLayer.playChord(padNotes, (preset.ambientOctave ?? 0) * 12);
 
-      // Re-tune voices to the initial chord tones
-      const maxMidi = preset.maxNote
-        ? Config.noteNameToMidi(preset.maxNote)
-        : null;
-      const chordVoiceNotes = Config.getVoiceNotesFromChord(
-        parsed.rootMidi,
-        parsed.chordTypeKey,
-        engine.voices.length,
-        maxMidi,
-      );
-      engine.voices.forEach((v, i) => {
-        v.note = chordVoiceNotes[i];
-      });
+      // Re-tune voices
+      retuneVoices(parsed, preset, engine.voices.length);
     }
 
     // Build renderer
@@ -159,16 +205,8 @@
               ? Config.noteNameToMidi(preset.maxNote)
               : null;
 
-            // Re-tune all voices to the new chord's tones
-            const chordVoiceNotes = Config.getVoiceNotesFromChord(
-              parsed.rootMidi,
-              parsed.chordTypeKey,
-              engine.voices.length,
-              maxMidi,
-            );
-            engine.voices.forEach((v, i) => {
-              v.note = chordVoiceNotes[i];
-            });
+            // Re-tune all voices
+            retuneVoices(parsed, preset, engine.voices.length);
 
             // Trigger Ambient Pad with the chord
             if (ambientLayer) {
@@ -176,7 +214,10 @@
                 parsed.rootMidi,
                 parsed.chordTypeKey,
               );
-              ambientLayer.playChord(padNotes);
+              ambientLayer.playChord(
+                padNotes,
+                (preset.ambientOctave ?? 0) * 12,
+              );
             }
 
             // Update UI (Show chord symbol)
@@ -207,6 +248,20 @@
             preset?.chordProgression?.[currentChordIndex] || 'N/A';
           const fps = p.frameRate().toFixed(0);
 
+          // Build compact note list (show note names for all voices)
+          const noteNames = engine.voices.map((v) => v.note?.name || '?');
+          // Group into rows of 8 for readability
+          const noteRows = [];
+          for (let ni = 0; ni < noteNames.length; ni += 8) {
+            noteRows.push(noteNames.slice(ni, ni + 8).join(' '));
+          }
+
+          // Find currently triggered voices
+          const triggered = engine.voices
+            .filter((v) => v.triggered)
+            .map((v) => `${v.id}:${v.note?.name || '?'}`)
+            .join(' ');
+
           p.debugInfoStr = `FPS:     ${fps}
 Time:    ${engine.getElapsedFormatted()}
 Beats:   ${engine.elapsedBeats.toFixed(1)}
@@ -215,15 +270,24 @@ Preset:  ${currentPresetKey}
 Scene:   ${currentSceneKey}
 Voices:  ${engine.voices.length}
 Chord:   ${currentChordIndex + 1}/${preset?.chordProgression?.length || 1} (${chordName})
-Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
+Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB
+Notes:   ${noteRows[0] || ''}${noteRows
+            .slice(1)
+            .map((r) => '\n         ' + r)
+            .join('')}
+Hit:     ${triggered || '-'}`;
         }
-
         if (p.debugInfoStr) {
           p.push();
           p.resetMatrix();
+
+          // Calculate dynamic height based on content lines
+          const lines = p.debugInfoStr.split('\n').length;
+          const boxH = 24 + lines * 13;
+
           p.fill(0, 0, 0, 80); // Semi-transparent bg
           p.noStroke();
-          p.rect(10, 10, 240, 150, 4);
+          p.rect(10, 10, 280, boxH, 4);
 
           p.fill(0, 0, 100);
           p.noStroke();
@@ -310,21 +374,10 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
         parsed.rootMidi,
         parsed.chordTypeKey,
       );
-      ambientLayer.playChord(padNotes);
+      ambientLayer.playChord(padNotes, (preset.ambientOctave ?? 0) * 12);
 
-      // Re-tune voices to the initial chord
-      const maxMidi = preset.maxNote
-        ? Config.noteNameToMidi(preset.maxNote)
-        : null;
-      const chordVoiceNotes = Config.getVoiceNotesFromChord(
-        parsed.rootMidi,
-        parsed.chordTypeKey,
-        engine.voices.length,
-        maxMidi,
-      );
-      engine.voices.forEach((v, i) => {
-        v.note = chordVoiceNotes[i];
-      });
+      // Re-tune voices
+      retuneVoices(parsed, preset, engine.voices.length);
     }
 
     if (renderer && renderer.p) {
@@ -403,7 +456,7 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
             parsed.rootMidi,
             parsed.chordTypeKey,
           );
-          ambientLayer.playChord(padNotes);
+          ambientLayer.playChord(padNotes, (preset.ambientOctave ?? 0) * 12);
         }
       }
     }
@@ -424,6 +477,50 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
     advScale.appendChild(opt);
   });
 
+  // Populate Phase Pattern Dropdown
+  const advOffsetPattern = document.getElementById('adv-offset-pattern');
+  Object.entries(Config.PHASE_PATTERNS).forEach(([key, pattern]) => {
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = pattern.name;
+    if (key === 'none') opt.selected = true;
+    advOffsetPattern.appendChild(opt);
+  });
+
+  // Populate Spatial Pattern Dropdown
+  const advSpatialPattern = document.getElementById('adv-spatial-pattern');
+  Object.entries(Config.SPATIAL_PATTERNS).forEach(([key, pattern]) => {
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = pattern.name;
+    if (key === 'none') opt.selected = true;
+    advSpatialPattern.appendChild(opt);
+  });
+
+  // Chord-tones-only checkbox toggles scale dropdown and updates preset
+  const advChordTonesOnly = document.getElementById('adv-chord-tones-only');
+  advChordTonesOnly.addEventListener('change', () => {
+    advScale.disabled = advChordTonesOnly.checked;
+    advScale.style.opacity = advChordTonesOnly.checked ? '0.4' : '1';
+
+    // Update the current preset so retuneVoices picks it up
+    const preset = Config.PRESETS[currentPresetKey];
+    if (preset) {
+      preset.chordTonesOnly = advChordTonesOnly.checked;
+
+      // Immediately retune voices using the current chord
+      if (
+        preset.chordProgression &&
+        preset.chordProgression.length > 0 &&
+        engine
+      ) {
+        const chordSymbol = preset.chordProgression[currentChordIndex];
+        const parsed = Config.parseChordSymbol(chordSymbol);
+        retuneVoices(parsed, preset, engine.voices.length);
+      }
+    }
+  });
+
   advancedBtn.addEventListener('click', () => {
     sidebar.classList.add('open');
     controlsPanel.classList.remove('open');
@@ -431,6 +528,29 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
 
   closeAdvanced.addEventListener('click', () => {
     sidebar.classList.remove('open');
+  });
+
+  // Ambient Octave slider
+  const advAmbientOctave = document.getElementById('adv-ambient-octave');
+  const advAmbientOctaveVal = document.getElementById('adv-ambient-octave-val');
+  advAmbientOctave.addEventListener('input', () => {
+    const oct = parseInt(advAmbientOctave.value);
+    advAmbientOctaveVal.textContent = oct > 0 ? `+${oct}` : oct;
+
+    // Update current preset
+    const preset = Config.PRESETS[currentPresetKey];
+    if (preset) preset.ambientOctave = oct;
+
+    // Re-trigger current chord at new octave
+    if (ambientLayer && preset?.chordProgression?.length > 0) {
+      const chordSymbol = preset.chordProgression[currentChordIndex];
+      const parsed = Config.parseChordSymbol(chordSymbol);
+      const padNotes = Config.getChordNotes(
+        parsed.rootMidi,
+        parsed.chordTypeKey,
+      );
+      ambientLayer.playChord(padNotes, oct * 12);
+    }
   });
 
   // Range updates
@@ -513,11 +633,20 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
     const maxMidi = maxNote ? Config.noteNameToMidi(maxNote) : null;
     const notes = Config.getNotesForScale(rootMidi, scaleKey, count, maxMidi);
     const colors = Config.generateColors(count);
+    const phasePatternKey = advOffsetPattern.value || 'none';
+    const phaseOffsets = Config.generatePhaseOffsets(count, phasePatternKey);
+    const spatialPatternKey = advSpatialPattern.value || 'none';
+    const spatialOffsets = Config.generateSpatialOffsets(
+      count,
+      spatialPatternKey,
+    );
 
     const voices = ratios.map((ratio, i) => ({
       ratio,
       note: notes[i],
       color: colors[i],
+      visualPhaseOffset: phaseOffsets[i],
+      spatialOffset: spatialOffsets[i],
     }));
 
     // Apply to Engine
@@ -537,6 +666,10 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
       maxNote,
       chordRatio,
       chordProgression,
+      chordTonesOnly: advChordTonesOnly.checked,
+      ambientOctave: parseInt(advAmbientOctave.value) || 0,
+      visualPhasePattern: phasePatternKey,
+      spatialPattern: spatialPatternKey,
       easing,
       bpm: engine.bpm,
     };
@@ -585,18 +718,13 @@ Vol:     ${audioLayer ? parseInt(Tone.Destination.volume.value) : '?'} dB`;
         parsed.rootMidi,
         parsed.chordTypeKey,
       );
-      ambientLayer.playChord(padNotes);
-
-      // Re-tune voices to the initial chord
-      const chordVoiceNotes = Config.getVoiceNotesFromChord(
-        parsed.rootMidi,
-        parsed.chordTypeKey,
-        engine.voices.length,
-        maxMidi,
+      ambientLayer.playChord(
+        padNotes,
+        (parseInt(advAmbientOctave.value) || 0) * 12,
       );
-      engine.voices.forEach((v, i) => {
-        v.note = chordVoiceNotes[i];
-      });
+
+      // Re-tune voices
+      retuneVoices(parsed, Config.PRESETS['custom'], engine.voices.length);
     }
 
     // Sidebar stays open for rapid iteration
