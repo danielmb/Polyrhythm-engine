@@ -13,10 +13,7 @@ const CircularOrbitsScene = {
   },
 
   draw(p, voices, w, h) {
-    // Semi-transparent background for motion trails
-    p.fill(10, 10, 15, 20);
-    p.noStroke();
-    p.rect(0, 0, w, h);
+    // Canvas is cleared and space background drawn by the renderer
 
     const cx = w / 2;
     const cy = h / 2;

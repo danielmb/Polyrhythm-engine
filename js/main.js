@@ -311,6 +311,7 @@ Hit:     ${triggered || '-'}`;
 
       p.windowResized = () => {
         p.resizeCanvas(p.windowWidth, p.windowHeight);
+        if (renderer) renderer.onResize(p.width, p.height);
         if (renderer.currentScene && renderer.currentScene.setup) {
           renderer.currentScene.setup(engine.voices, p.width, p.height);
         }

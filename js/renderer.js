@@ -6,7 +6,7 @@
 class Renderer {
   constructor() {
     this.scenes = {
-      'pendulum': PendulumScene,
+      pendulum: PendulumScene,
       'bouncing-boxes': BouncingBoxesScene,
       'circular-orbits': CircularOrbitsScene,
     };
@@ -33,9 +33,20 @@ class Renderer {
    * Draw the current scene. Called every frame from p5's draw().
    */
   draw(p, voices, w, h, options) {
+    // Clear canvas and draw space background behind the scene
+    p.background(10, 10, 15);
+    SpaceBackground.draw(p, w, h);
+
     if (this.currentScene && this.currentScene.draw) {
       this.currentScene.draw(p, voices, w, h, options);
     }
+  }
+
+  /**
+   * Notify background of a canvas resize.
+   */
+  onResize(w, h) {
+    SpaceBackground.reset();
   }
 
   /**

@@ -13,10 +13,7 @@ const BouncingBoxesScene = {
   },
 
   draw(p, voices, w, h) {
-    // Semi-transparent background for trails
-    p.fill(10, 10, 15, 28);
-    p.noStroke();
-    p.rect(0, 0, w, h);
+    // Canvas is cleared and space background drawn by the renderer
 
     const n = voices.length;
     const spacing = w / (n + 1);

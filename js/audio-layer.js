@@ -1,95 +1,243 @@
 /**
- * audio-layer.js — Tone.js wrapper for polyrhythm audio.
- * Creates one synth per voice, routes through reverb → volume → destination.
+ * audio-layer.js — High-performance audio layer for polyrhythms.
+ *
+ * Instead of one Tone.Synth per voice (which overwhelms the Web Audio thread
+ * with many voices), this pre-renders a single "ping" waveform into an
+ * AudioBuffer at init time.  Each trigger simply spawns a lightweight
+ * AudioBufferSourceNode with playbackRate-based pitch shifting — practically
+ * free compared to live oscillators.
+ *
+ * A voice pool caps the number of simultaneously playing sources so the
+ * audio thread never overloads, and simultaneous triggers within the same
+ * frame are staggered by ~2 ms to avoid burst-scheduling clicks.
  */
 
 class AudioLayer {
   constructor() {
-    this.synths = [];
-    this.reverb = null;
-    this.volume = null;
-    this.filter = null;
+    /** @type {AudioBuffer|null} Pre-rendered ping at BASE_FREQ */
+    this._buffer = null;
+
+    /** @type {AudioBufferSourceNode[]} Currently-playing source nodes */
+    this._activeSources = [];
+
+    // Web Audio nodes (native — no Tone.js overhead for per-note work)
+    this._dryGain = null; // dry path gain
+    this._wetGain = null; // wet (delay-send) gain
+    this._delay = null; // DelayNode
+    this._feedback = null; // feedback gain
+    this._lpf = null; // low-pass on feedback loop
+    this._compressor = null; // dynamics compressor
+    this._masterGain = null;
+
+    this._baseFreq = 440; // Frequency the buffer was rendered at
     this.initialized = false;
+
+    /** Max simultaneous buffer sources before voice-stealing kicks in */
+    this.MAX_VOICES = 48;
   }
 
+  /* ------------------------------------------------------------------ */
+  /*  Initialisation                                                     */
+  /* ------------------------------------------------------------------ */
+
   /**
-   * Initialize audio chain. Call after Tone.start().
-   * @param {Array<{note: {frequency: number, name: string}}>} voices
+   * Initialise the audio chain.  Call after Tone.start().
+   * @param {Array<{note: {frequency: number}}>} voices — only used so the
+   *        public API stays the same; we no longer create per-voice synths.
    */
   async init(voices) {
     if (this.initialized) this.dispose();
 
-    // Master volume
-    this.volume = new Tone.Volume(-6).toDestination();
+    const ctx = Tone.getContext().rawContext;
 
-    // Low-pass filter for softness
-    this.filter = new Tone.Filter({
-      frequency: 3500,
-      type: 'lowpass',
-      rolloff: -12,
-    }).connect(this.volume);
+    // ── Pre-render a sine "ping" into an AudioBuffer ──
+    this._buffer = this._renderPingBuffer(ctx.sampleRate);
 
-    // Reverb for space
-    this.reverb = new Tone.Reverb({
-      decay: 4.5,
-      wet: 0.5,
-    }).connect(this.filter);
+    // ── Build a native Web Audio effects chain ──
+    // This avoids the per-node Tone.js wrapper overhead entirely.
+    //
+    //  source ─┬─► dryGain ──────────────┬─► compressor ─► masterGain ─► dest
+    //          └─► wetGain ─► delay ─► lpf ─┘
+    //                          ▲       │
+    //                          └── feedback ◄─┘
 
-    // Wait for reverb to generate its impulse response
-    await this.reverb.generate();
+    this._masterGain = ctx.createGain();
+    this._masterGain.gain.value = 0.8;
 
-    // Create one synth per voice
-    this.synths = voices.map(() => {
-      const synth = new Tone.Synth({
-        oscillator: { type: 'sine' },
-        envelope: {
-          attack: 0.02,
-          decay: 0.6,
-          sustain: 0,
-          release: 2.0,
-        },
-      }).connect(this.reverb);
-      return synth;
-    });
+    // Compressor to tame simultaneous-note loudness spikes
+    this._compressor = ctx.createDynamicsCompressor();
+    this._compressor.threshold.value = -18; // start compressing at -18 dB
+    this._compressor.knee.value = 12;
+    this._compressor.ratio.value = 6;
+    this._compressor.attack.value = 0.003;
+    this._compressor.release.value = 0.15;
+
+    this._masterGain.connect(this._compressor);
+    this._compressor.connect(ctx.destination);
+
+    // Dry path
+    this._dryGain = ctx.createGain();
+    this._dryGain.gain.value = 0.85;
+    this._dryGain.connect(this._masterGain);
+
+    // Wet path — feedback delay "reverb"
+    this._wetGain = ctx.createGain();
+    this._wetGain.gain.value = 0.35;
+
+    this._delay = ctx.createDelay(1.0);
+    this._delay.delayTime.value = 0.2;
+
+    this._feedback = ctx.createGain();
+    this._feedback.gain.value = 0.3;
+
+    this._lpf = ctx.createBiquadFilter();
+    this._lpf.type = 'lowpass';
+    this._lpf.frequency.value = 2800;
+
+    // Wire wet path
+    this._wetGain.connect(this._delay);
+    this._delay.connect(this._lpf);
+    this._lpf.connect(this._masterGain); // wet output
+    this._lpf.connect(this._feedback); // feedback tap
+    this._feedback.connect(this._delay); // loop back
 
     this.initialized = true;
   }
 
+  /* ------------------------------------------------------------------ */
+  /*  Buffer rendering                                                   */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Build a sine-ping AudioBuffer sample-by-sample.
+   * This gives us exact control: guaranteed zero at start and end,
+   * a smooth attack ramp, and an exponential decay — no crackle.
+   */
+  _renderPingBuffer(sampleRate) {
+    sampleRate = sampleRate || 44100;
+    const duration = 1.2;
+    const length = Math.ceil(sampleRate * duration);
+    const ctx = Tone.getContext().rawContext;
+    const buffer = ctx.createBuffer(1, length, sampleRate);
+    const data = buffer.getChannelData(0);
+
+    const attackSamples = Math.ceil(sampleRate * 0.008); // 8 ms attack
+    const fadeSamples = Math.ceil(sampleRate * 0.01); // 10 ms fade-out at end
+    const decayRate = 5.0 / duration; // exponential decay factor
+
+    for (let i = 0; i < length; i++) {
+      const t = i / sampleRate;
+
+      // Sine carrier
+      const sine = Math.sin(2 * Math.PI * this._baseFreq * t);
+
+      // Envelope: attack ramp × exponential decay
+      let env;
+      if (i < attackSamples) {
+        env = i / attackSamples; // linear 0→1
+      } else {
+        env = Math.exp(-decayRate * (t - attackSamples / sampleRate));
+      }
+
+      // Final fade-out: last 10 ms ramps to exactly 0
+      const remaining = length - i;
+      if (remaining < fadeSamples) {
+        env *= remaining / fadeSamples;
+      }
+
+      data[i] = sine * env * 0.85;
+    }
+
+    return buffer;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Per-frame update                                                   */
+  /* ------------------------------------------------------------------ */
+
   /**
    * Check voices for triggers and play notes.
-   * @param {Array<{triggered: boolean, note: {frequency: number, name: string}}>} voices
+   * Simultaneous triggers are staggered by ~2 ms each to spread the load.
+   * @param {Array<{triggered: boolean, note: {frequency: number}}>} voices
    */
   update(voices) {
-    if (!this.initialized) return;
+    if (!this.initialized || !this._buffer) return;
 
+    let triggerOffset = 0;
     for (let i = 0; i < voices.length; i++) {
-      if (voices[i].triggered && this.synths[i]) {
-        const freq = voices[i].note.frequency;
-        try {
-          this.synths[i].triggerAttackRelease(freq, '8n', Tone.now() + 0.01);
-        } catch (e) {
-          // Synth may still be releasing — safe to ignore
-        }
-      }
+      if (!voices[i].triggered) continue;
+
+      const freq = voices[i].note.frequency;
+      const ctx = Tone.getContext().rawContext;
+      const when = ctx.currentTime + 0.005 + triggerOffset * 0.002;
+      this._playBuffer(freq, when);
+      triggerOffset++;
     }
   }
 
+  /* ------------------------------------------------------------------ */
+  /*  Buffer playback + voice pool                                       */
+  /* ------------------------------------------------------------------ */
+
   /**
-   * Set master volume in dB (0 to -60).
+   * Play the pre-rendered buffer at the given frequency.
+   * @param {number} freq  — desired frequency in Hz
+   * @param {number} when  — audioContext time to start
+   */
+  _playBuffer(freq, when) {
+    // ── Voice-stealing: drop oldest source if pool is full ──
+    while (this._activeSources.length >= this.MAX_VOICES) {
+      const old = this._activeSources.shift();
+      try {
+        old.stop();
+      } catch (_) {
+        /* already stopped */
+      }
+    }
+
+    const ctx = Tone.getContext().rawContext;
+    const src = ctx.createBufferSource();
+    src.buffer = this._buffer;
+    src.playbackRate.value = freq / this._baseFreq;
+
+    // Connect to both dry and wet paths
+    src.connect(this._dryGain);
+    src.connect(this._wetGain);
+
+    src.start(when);
+
+    // Track and auto-remove on end
+    this._activeSources.push(src);
+    src.onended = () => {
+      const idx = this._activeSources.indexOf(src);
+      if (idx !== -1) this._activeSources.splice(idx, 1);
+    };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Volume                                                             */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Set master volume.
    * @param {number} percent 0–100
    */
   setVolume(percent) {
-    if (!this.volume) return;
+    if (!this._masterGain) return;
     if (percent <= 0) {
-      this.volume.volume.value = -Infinity;
+      this._masterGain.gain.value = 0;
     } else {
-      // Map 0–100 to -40dB–0dB
-      this.volume.volume.value = -40 + (percent / 100) * 40;
+      // Map 0–100 → 0–0.8
+      this._masterGain.gain.value = (percent / 100) * 0.8;
     }
   }
 
+  /* ------------------------------------------------------------------ */
+  /*  Reinit / Dispose                                                   */
+  /* ------------------------------------------------------------------ */
+
   /**
-   * Reinitialize synths for new voice configs.
+   * Reinitialise for new voice configs (API-compatible with old layer).
    */
   async reinit(voices) {
     await this.init(voices);
@@ -99,13 +247,37 @@ class AudioLayer {
    * Clean up all audio nodes.
    */
   dispose() {
-    this.synths.forEach(s => {
-      try { s.dispose(); } catch (e) {}
+    // Stop all playing sources
+    this._activeSources.forEach((s) => {
+      try {
+        s.stop();
+      } catch (_) {}
     });
-    this.synths = [];
-    if (this.reverb) { try { this.reverb.dispose(); } catch (e) {} this.reverb = null; }
-    if (this.filter) { try { this.filter.dispose(); } catch (e) {} this.filter = null; }
-    if (this.volume) { try { this.volume.dispose(); } catch (e) {} this.volume = null; }
+    this._activeSources = [];
+
+    [
+      this._dryGain,
+      this._wetGain,
+      this._delay,
+      this._feedback,
+      this._lpf,
+      this._compressor,
+      this._masterGain,
+    ].forEach((node) => {
+      if (node) {
+        try {
+          node.disconnect();
+        } catch (_) {}
+      }
+    });
+    this._dryGain = null;
+    this._wetGain = null;
+    this._delay = null;
+    this._feedback = null;
+    this._lpf = null;
+    this._compressor = null;
+    this._masterGain = null;
+    this._buffer = null;
     this.initialized = false;
   }
 }

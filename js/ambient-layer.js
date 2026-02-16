@@ -7,13 +7,13 @@ class AmbientLayer {
 
   /** Build the entire audio chain from scratch */
   _buildChain() {
-    // PolySynth for chords
+    // PolySynth for chords (lean settings to save CPU)
     this.synth = new Tone.PolySynth(Tone.Synth, {
-      maxPolyphony: 8,
+      maxPolyphony: 6,
       oscillator: {
         type: 'fatsine',
-        count: 3,
-        spread: 30,
+        count: 2,
+        spread: 20,
       },
       envelope: {
         attack: 2,
@@ -25,19 +25,18 @@ class AmbientLayer {
 
     // Effects chain
     this.filter = new Tone.Filter(800, 'lowpass');
-    this.reverb = new Tone.Reverb({
-      decay: 5,
-      preDelay: 0.2,
-      wet: 0.6,
+    // Lightweight delay-based "reverb" — much cheaper than convolution
+    this.delay = new Tone.FeedbackDelay({
+      delayTime: 0.3,
+      feedback: 0.25,
+      wet: 0.35,
     });
-    this.chorus = new Tone.Chorus(2, 3, 0.4).start();
     this.vol = new Tone.Volume(-15);
 
-    // Connect: synth → filter → chorus → reverb → vol → destination
+    // Connect: synth → filter → delay → vol → destination
     this.synth.connect(this.filter);
-    this.filter.connect(this.chorus);
-    this.chorus.connect(this.reverb);
-    this.reverb.connect(this.vol);
+    this.filter.connect(this.delay);
+    this.delay.connect(this.vol);
     this.vol.toDestination();
   }
 
@@ -108,18 +107,14 @@ class AmbientLayer {
       this.filter.dispose();
     } catch (e) {}
     try {
-      this.chorus.dispose();
-    } catch (e) {}
-    try {
-      this.reverb.dispose();
+      this.delay.dispose();
     } catch (e) {}
     try {
       this.vol.dispose();
     } catch (e) {}
     this.synth = null;
     this.filter = null;
-    this.chorus = null;
-    this.reverb = null;
+    this.delay = null;
     this.vol = null;
     this.currentNotes = [];
   }

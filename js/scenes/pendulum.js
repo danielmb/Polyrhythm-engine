@@ -7,16 +7,31 @@ const PendulumScene = {
   name: 'Pendulum',
   maxAngle: Math.PI / 4,
   lengthRatio: 0.55, // pendulum length as fraction of canvas height
+  trails: [],
+  maxTrails: 200,
 
   setup(voices, w, h) {
-    // No persistent state needed
+    this.trails = [];
   },
 
   draw(p, voices, w, h, options = {}) {
-    // Semi-transparent background for motion trails
-    p.fill(10, 10, 15, 22);
-    p.noStroke();
-    p.rect(0, 0, w, h);
+    // Canvas is cleared and space background drawn by the renderer
+
+    // ── Draw & age trail history ──
+    for (let j = this.trails.length - 1; j >= 0; j--) {
+      const t = this.trails[j];
+      t.life -= 0.018;
+      if (t.life <= 0) {
+        this.trails.splice(j, 1);
+        continue;
+      }
+      p.push();
+      p.colorMode(p.HSB, 360, 100, 100, 100);
+      p.noStroke();
+      p.fill(t.hue, t.sat * 0.5, t.bri, t.life * 18);
+      p.ellipse(t.x, t.y, t.size * t.life, t.size * t.life);
+      p.pop();
+    }
 
     const n = voices.length;
     const cx = w / 2;
@@ -98,6 +113,20 @@ const PendulumScene = {
 
       const [hue, sat, bri] = voice.color;
 
+      // ── Store trail point ──
+      const baseRadius = Math.min(w, h) * 0.015;
+      if (this.trails.length < this.maxTrails) {
+        this.trails.push({
+          x: bobX,
+          y: visualY,
+          hue,
+          sat,
+          bri,
+          size: baseRadius * 1.5,
+          life: 0.5 + voice.amplitude * 0.4,
+        });
+      }
+
       // ── String / Connector ──
       p.push();
       p.colorMode(p.HSB, 360, 100, 100, 100);
@@ -111,7 +140,6 @@ const PendulumScene = {
       p.colorMode(p.HSB, 360, 100, 100, 100);
       p.noStroke();
 
-      const baseRadius = Math.min(w, h) * 0.015;
       const pulseRadius = baseRadius + voice.amplitude * baseRadius * 1.8;
 
       // Outer glow
@@ -151,5 +179,7 @@ const PendulumScene = {
     }
   },
 
-  teardown() {},
+  teardown() {
+    this.trails = [];
+  },
 };
