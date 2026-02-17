@@ -43,13 +43,28 @@
         maxMidi,
       );
     }
+    const nextNotes = [];
     engine.voices.forEach((v, i) => {
-      if (v.sameNoteAsPrevious && i > 0) {
-        // Keep this voice locked to previous voice note
-        v.note = { ...engine.voices[i - 1].note };
+      const defaultNote = notes[i];
+      const prev = i > 0 ? nextNotes[i - 1] : null;
+      const tagged = Config.resolveManualNoteTag(v.manualNoteTag, {
+        prevNote: prev,
+        chordRootMidi: parsed.rootMidi,
+        chordTypeKey: parsed.chordTypeKey,
+        maxMidi,
+      });
+
+      if (tagged) {
+        nextNotes.push(tagged);
+      } else if (v.sameNoteAsPrevious && i > 0) {
+        nextNotes.push({ ...prev });
       } else {
-        v.note = notes[i];
+        nextNotes.push(defaultNote);
       }
+    });
+
+    engine.voices.forEach((v, i) => {
+      v.note = nextNotes[i];
     });
   }
 
@@ -802,6 +817,7 @@ Hit:     ${triggered || '-'}`;
     let ratios;
     let delays; // array of startDelay in seconds
     let sameNoteFlags;
+    let manualNoteTags;
 
     if (parsedManual) {
       // Manual mode — use parsed ratios and delays
@@ -815,6 +831,7 @@ Hit:     ${triggered || '-'}`;
         return v.delaySec;
       });
       sameNoteFlags = parsedManual.map((v) => !!v.sameAsPrevious);
+      manualNoteTags = parsedManual.map((v) => v.noteTag || null);
     } else {
       // Generator mode
       const count = parseInt(document.getElementById('adv-voice-count').value);
@@ -825,6 +842,7 @@ Hit:     ${triggered || '-'}`;
       ratios = Config.createSmoothRatios(count, rStart, rEnd);
       delays = ratios.map(() => 0);
       sameNoteFlags = ratios.map(() => false);
+      manualNoteTags = ratios.map(() => null);
     }
 
     const count = ratios.length;
@@ -855,8 +873,31 @@ Hit:     ${triggered || '-'}`;
       spatialPatternKey,
     );
 
+    const firstChordParsed =
+      chordProgression.length > 0
+        ? Config.parseChordSymbol(chordProgression[0])
+        : null;
+
+    const resolvedNotes = [];
+    for (let i = 0; i < count; i++) {
+      const prev = i > 0 ? resolvedNotes[i - 1] : null;
+      const tagged = Config.resolveManualNoteTag(manualNoteTags[i], {
+        prevNote: prev,
+        chordRootMidi: firstChordParsed ? firstChordParsed.rootMidi : null,
+        chordTypeKey: firstChordParsed ? firstChordParsed.chordTypeKey : null,
+        maxMidi,
+      });
+      if (tagged) {
+        resolvedNotes.push(tagged);
+      } else if (sameNoteFlags[i] && i > 0) {
+        resolvedNotes.push({ ...prev });
+      } else {
+        resolvedNotes.push(notes[i]);
+      }
+    }
+
     const voices = ratios.map((ratio, i) => {
-      const note = sameNoteFlags[i] && i > 0 ? { ...notes[i - 1] } : notes[i];
+      const note = resolvedNotes[i];
       return {
         ratio,
         note,
@@ -865,6 +906,7 @@ Hit:     ${triggered || '-'}`;
         spatialOffset: spatialOffsets[i],
         startDelay: delays[i] || 0,
         sameNoteAsPrevious: sameNoteFlags[i] || false,
+        manualNoteTag: manualNoteTags[i] || null,
       };
     });
 

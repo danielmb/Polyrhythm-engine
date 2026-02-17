@@ -304,11 +304,30 @@ const Config = (() => {
   ];
 
   function noteNameToMidi(name) {
-    const match = name.match(/^([A-G]#?)(\d)$/);
+    const match = name.match(/^([A-G](?:#|b)?)(\d?)$/);
     if (!match) return 60;
-    const note = NOTE_NAMES.indexOf(match[1]);
-    const octave = parseInt(match[2]);
+    const flatToSharp = {
+      Db: 'C#',
+      Eb: 'D#',
+      Fb: 'E',
+      Gb: 'F#',
+      Ab: 'G#',
+      Bb: 'A#',
+      Cb: 'B',
+    };
+    const norm = flatToSharp[match[1]] || match[1];
+    const note = NOTE_NAMES.indexOf(norm);
+    if (note < 0) return 60;
+    const octave = match[2] ? parseInt(match[2]) : 4;
     return note + (octave + 1) * 12;
+  }
+
+  function midiToNoteObject(midi) {
+    return {
+      midi,
+      frequency: midiToFrequency(midi),
+      name: midiToNoteName(midi),
+    };
   }
 
   function midiToFrequency(midi) {
@@ -552,6 +571,18 @@ const Config = (() => {
       ambientOctave: 0,
       visualPhasePattern: 'opposites',
     },
+    theLick: {
+      name: 'The Lick',
+      manualVoices:
+        '1.0+0.2s=D4,1.01+0.4s=E4,1.02+0.6s=F4,1.03+0.8s=G4,1.04+1.0s=E4,1.05+1.4s=C4,1.06+1.6s=D4',
+      scale: 'chromatic',
+      rootNote: 'C4',
+      maxNote: 'C7',
+      bpm: 20,
+      description: 'The classic jazz lick, with a twist',
+      chordRatio: 0.5,
+      ambientOctave: 0,
+    },
     slowMajor: {
       name: 'Slow Major Progression',
       ratios: createSmoothRatios(25, 1, 2),
@@ -734,11 +765,14 @@ const Config = (() => {
   /**
    * Parse a manual voice definition string.
    * Syntax: comma-separated entries, each is `ratio`, `ratio+Xs`, or
-   * `ratio+Xs=prev` / `ratio=prev`.
+   * with optional `=tag`.
    *
    * - Xs => delay in seconds
    * - Xb => delay in beats
-   * - =prev (or =same) => force this voice to reuse previous voice note
+   * Tags:
+   * - =prev (or =same) => reuse previous voice note
+   * - =D5 / =F#4 / =Bb3 => force explicit note
+   * - =ch1 / =ch2 / =ch3 ... => force chord position (1=root,2=third,...)
    *
    * Examples:
    *   "1.0, 1.0+0.2s, 1.05, 1.05+0.2s"
@@ -746,7 +780,7 @@ const Config = (() => {
    *   "0.5+1s, 1.0, 1.0+0.5s"
    *
    * @param {string} input
-   * @returns {Array<{ratio: number, delaySec: number, delayUnit: string, sameAsPrevious: boolean}>|null}
+   * @returns {Array<{ratio: number, delaySec: number, delayUnit: string, sameAsPrevious: boolean, noteTag: string|null}>|null}
    */
   function parseManualVoices(input) {
     if (!input || !input.trim()) return null;
@@ -759,9 +793,9 @@ const Config = (() => {
     const result = [];
     for (const entry of entries) {
       // Match: number, optional +number with 's' or 'b' suffix,
-      // and optional =prev / =same note tag
+      // and optional =tag
       const match = entry.match(
-        /^([\d.]+)(?:\+([\d.]+)(s|b))?(?:=(prev|same))?$/i,
+        /^([\d.]+)(?:\+([\d.]+)(s|b))?(?:=([A-Za-z0-9#b]+))?$/i,
       );
       if (!match) {
         console.warn(`Invalid manual voice entry: "${entry}"`);
@@ -770,12 +804,64 @@ const Config = (() => {
       const ratio = parseFloat(match[1]);
       const delayVal = match[2] ? parseFloat(match[2]) : 0;
       const delayUnit = match[3] || 's';
-      const sameAsPrevious = !!match[4];
+      const noteTag = match[4] ? match[4] : null;
+      const sameAsPrevious =
+        noteTag && /^(prev|same)$/i.test(noteTag) ? true : false;
       if (!isNaN(ratio) && ratio > 0) {
-        result.push({ ratio, delaySec: delayVal, delayUnit, sameAsPrevious });
+        result.push({
+          ratio,
+          delaySec: delayVal,
+          delayUnit,
+          sameAsPrevious,
+          noteTag,
+        });
       }
     }
     return result.length > 0 ? result : null;
+  }
+
+  /**
+   * Resolve a manual note tag into a concrete note object.
+   * Returns null when tag is invalid / not recognized.
+   */
+  function resolveManualNoteTag(tag, context = {}) {
+    if (!tag) return null;
+    const {
+      prevNote = null,
+      chordRootMidi = null,
+      chordTypeKey = null,
+      maxMidi = null,
+    } = context;
+
+    // Previous-note tag
+    if (/^(prev|same)$/i.test(tag)) {
+      return prevNote ? { ...prevNote } : null;
+    }
+
+    // Explicit note tag (e.g. D5, F#4, Bb3)
+    if (/^[A-G](?:#|b)?\d?$/i.test(tag)) {
+      const midi = noteNameToMidi(tag);
+      return midiToNoteObject(midi);
+    }
+
+    // Chord position tag (e.g. ch1, chord2)
+    const chordPos = tag.match(/^(?:ch|chord)(\d+)$/i);
+    if (chordPos && chordRootMidi != null && chordTypeKey) {
+      const pos = Math.max(1, parseInt(chordPos[1])) - 1; // zero-based
+      const chord = CHORD_TYPES[chordTypeKey] || CHORD_TYPES.major;
+      const intervals = chord.intervals;
+      const toneIdx = pos % intervals.length;
+      const octIdx = Math.floor(pos / intervals.length);
+      let midi = chordRootMidi + intervals[toneIdx] + octIdx * 12;
+
+      if (maxMidi != null) {
+        while (midi > maxMidi) midi -= 12;
+      }
+
+      return midiToNoteObject(midi);
+    }
+
+    return null;
   }
 
   /**
@@ -791,7 +877,7 @@ const Config = (() => {
       : null;
 
     // Determine ratios and delays
-    let ratios, delays, sameNoteFlags;
+    let ratios, delays, sameNoteFlags, manualNoteTags;
     if (manualParsed) {
       ratios = manualParsed.map((v) => v.ratio);
       const bpm = preset.bpm || 60;
@@ -800,10 +886,12 @@ const Config = (() => {
         return v.delaySec;
       });
       sameNoteFlags = manualParsed.map((v) => !!v.sameAsPrevious);
+      manualNoteTags = manualParsed.map((v) => v.noteTag || null);
     } else {
       ratios = preset.ratios;
       delays = ratios.map(() => 0);
       sameNoteFlags = ratios.map(() => false);
+      manualNoteTags = ratios.map(() => null);
     }
 
     const count = ratios.length;
@@ -836,13 +924,32 @@ const Config = (() => {
       count,
       preset.spatialPattern || 'none',
     );
-    const finalNotes = notes.map((note, i) => {
-      if (sameNoteFlags[i] && i > 0) {
-        const prev = notes[i - 1];
-        return { ...prev };
+    const chordContext =
+      preset.chordProgression && preset.chordProgression.length > 0
+        ? parseChordSymbol(preset.chordProgression[0])
+        : null;
+
+    const finalNotes = [];
+    for (let i = 0; i < notes.length; i++) {
+      const defaultNote = notes[i];
+      const tag = manualNoteTags[i];
+      const prev = i > 0 ? finalNotes[i - 1] : null;
+
+      const tagged = resolveManualNoteTag(tag, {
+        prevNote: prev,
+        chordRootMidi: chordContext ? chordContext.rootMidi : null,
+        chordTypeKey: chordContext ? chordContext.chordTypeKey : null,
+        maxMidi,
+      });
+
+      if (tagged) {
+        finalNotes.push(tagged);
+      } else if (sameNoteFlags[i] && i > 0) {
+        finalNotes.push({ ...prev });
+      } else {
+        finalNotes.push(defaultNote);
       }
-      return note;
-    });
+    }
 
     return {
       preset,
@@ -854,6 +961,7 @@ const Config = (() => {
         spatialOffset: spatialOffsets[i],
         startDelay: delays[i] || 0,
         sameNoteAsPrevious: sameNoteFlags[i] || false,
+        manualNoteTag: manualNoteTags[i] || null,
       })),
     };
   }
@@ -921,6 +1029,7 @@ const Config = (() => {
     buildVoiceConfig,
     createSmoothRatios,
     parseManualVoices,
+    resolveManualNoteTag,
     getPolyrhythmResolution,
   };
 })();
