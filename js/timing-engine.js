@@ -36,6 +36,9 @@ class TimingEngine {
       triggered: false,
       triggerCooldown: 0,
       amplitude: 0,
+      triggerGlow: 0, // 0..1 smooth decay for visual effects
+      startDelay: cfg.startDelay || 0, // delay in seconds before voice starts
+      sameNoteAsPrevious: cfg.sameNoteAsPrevious || false,
       note: cfg.note, // { midi, frequency, name }
       color: cfg.color, // [h, s, b]
       visualPhaseOffset: cfg.visualPhaseOffset || 0, // 0..1 visual starting position
@@ -110,8 +113,21 @@ class TimingEngine {
     for (let i = 0; i < this.voices.length; i++) {
       const voice = this.voices[i];
 
+      // Apply start delay — voice doesn't tick until delay has elapsed
+      const delayMs = voice.startDelay * 1000;
+      const voiceElapsedMs = elapsedMs - delayMs;
+      if (voiceElapsedMs < 0) {
+        // Voice hasn't started yet
+        voice.phase = 0;
+        voice.previousPhase = 0;
+        voice.triggered = false;
+        voice.amplitude = 0;
+        continue;
+      }
+      const voiceElapsedBeats = (voiceElapsedMs / 1000) * (this.bpm / 60);
+
       // Calculate phase from absolute time (no drift)
-      voice.phase = (this.elapsedBeats * voice.ratio) % 1;
+      voice.phase = (voiceElapsedBeats * voice.ratio) % 1;
 
       // Trigger detection — phase wrapped around
       if (voice.triggerCooldown > 0) {
@@ -120,6 +136,7 @@ class TimingEngine {
       } else if (voice.phase < voice.previousPhase) {
         voice.triggered = true;
         voice.amplitude = 1.0;
+        voice.triggerGlow = 1.0; // spike glow on trigger
         voice.triggerCooldown = 3; // prevent double-fire for a few frames
       } else {
         voice.triggered = false;
@@ -129,6 +146,12 @@ class TimingEngine {
       if (!voice.triggered) {
         voice.amplitude *= this.decayRate;
         if (voice.amplitude < 0.001) voice.amplitude = 0;
+      }
+
+      // Trigger glow — slow smooth decay (independent of amplitude)
+      if (voice.triggerGlow > 0.001) {
+        voice.triggerGlow *= 0.96; // ~60 frames to fade to near-zero
+        if (voice.triggerGlow < 0.001) voice.triggerGlow = 0;
       }
 
       // Store for next frame

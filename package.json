@@ -1,0 +1,15 @@
+{
+  "name": "poly2",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "parcel index.html --open"
+  },
+  "keywords": [],
+  "author": "Daniel Mathisen Breivik",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "parcel": "^2.16.4"
+  }
+}

@@ -109,13 +109,13 @@ class AudioLayer {
   /* ------------------------------------------------------------------ */
 
   /**
-   * Build a sine-ping AudioBuffer sample-by-sample.
-   * This gives us exact control: guaranteed zero at start and end,
-   * a smooth attack ramp, and an exponential decay — no crackle.
+   * Build a ping AudioBuffer sample-by-sample with the given waveform type.
+   * @param {number} sampleRate
+   * @param {'sine'|'triangle'|'square'|'sawtooth'|'pluck'} [type='sine']
    */
-  _renderPingBuffer(sampleRate) {
+  _renderPingBuffer(sampleRate, type = 'sine') {
     sampleRate = sampleRate || 44100;
-    const duration = 1.2;
+    const duration = type === 'pluck' ? 1.8 : 1.2;
     const length = Math.ceil(sampleRate * duration);
     const ctx = Tone.getContext().rawContext;
     const buffer = ctx.createBuffer(1, length, sampleRate);
@@ -123,29 +123,51 @@ class AudioLayer {
 
     const attackSamples = Math.ceil(sampleRate * 0.008); // 8 ms attack
     const fadeSamples = Math.ceil(sampleRate * 0.01); // 10 ms fade-out at end
-    const decayRate = 5.0 / duration; // exponential decay factor
+    const decayRate = (type === 'pluck' ? 3.0 : 5.0) / duration;
 
     for (let i = 0; i < length; i++) {
       const t = i / sampleRate;
+      const phase = 2 * Math.PI * this._baseFreq * t;
 
-      // Sine carrier
-      const sine = Math.sin(2 * Math.PI * this._baseFreq * t);
+      // Waveform
+      let wave;
+      switch (type) {
+        case 'triangle':
+          wave = (2 / Math.PI) * Math.asin(Math.sin(phase));
+          break;
+        case 'square':
+          wave = Math.sin(phase) >= 0 ? 0.6 : -0.6;
+          break;
+        case 'sawtooth':
+          wave = 2 * ((this._baseFreq * t) % 1) - 1;
+          break;
+        case 'pluck': {
+          // Karplus-Strong-ish: sine + decaying harmonics
+          const h2 = Math.sin(phase * 2) * 0.5 * Math.exp(-8 * t);
+          const h3 = Math.sin(phase * 3) * 0.3 * Math.exp(-12 * t);
+          const noise = (Math.random() * 2 - 1) * Math.max(0, 0.3 - t * 4);
+          wave = Math.sin(phase) + h2 + h3 + noise;
+          break;
+        }
+        default: // sine
+          wave = Math.sin(phase);
+      }
 
       // Envelope: attack ramp × exponential decay
       let env;
       if (i < attackSamples) {
-        env = i / attackSamples; // linear 0→1
+        env = i / attackSamples;
       } else {
         env = Math.exp(-decayRate * (t - attackSamples / sampleRate));
       }
 
-      // Final fade-out: last 10 ms ramps to exactly 0
+      // Final fade-out
       const remaining = length - i;
       if (remaining < fadeSamples) {
         env *= remaining / fadeSamples;
       }
 
-      data[i] = sine * env * 0.85;
+      data[i] = wave * env * 0.85;
     }
 
     return buffer;
@@ -230,6 +252,46 @@ class AudioLayer {
       // Map 0–100 → 0–0.8
       this._masterGain.gain.value = (percent / 100) * 0.8;
     }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /*  Mixer controls                                                     */
+  /* ------------------------------------------------------------------ */
+
+  /** Set wet/dry mix. @param {number} percent 0–100 */
+  setReverbMix(percent) {
+    if (!this._wetGain || !this._dryGain) return;
+    const wet = percent / 100;
+    this._wetGain.gain.value = wet * 0.7;
+    this._dryGain.gain.value = 1 - wet * 0.3;
+  }
+
+  /** Set delay time in seconds. @param {number} seconds */
+  setDelayTime(seconds) {
+    if (!this._delay) return;
+    this._delay.delayTime.value = Math.min(seconds, 0.99);
+  }
+
+  /** Set feedback amount. @param {number} percent 0–80 */
+  setFeedback(percent) {
+    if (!this._feedback) return;
+    this._feedback.gain.value = Math.min(percent / 100, 0.85);
+  }
+
+  /** Set low-pass filter frequency. @param {number} freq Hz */
+  setFilterFreq(freq) {
+    if (!this._lpf) return;
+    this._lpf.frequency.value = freq;
+  }
+
+  /**
+   * Change the synth sound by re-rendering the ping buffer with a different waveform.
+   * @param {'sine'|'triangle'|'square'|'sawtooth'|'pluck'} type
+   */
+  setSoundType(type) {
+    if (!this.initialized) return;
+    const sampleRate = Tone.getContext().rawContext.sampleRate || 44100;
+    this._buffer = this._renderPingBuffer(sampleRate, type);
   }
 
   /* ------------------------------------------------------------------ */

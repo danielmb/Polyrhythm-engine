@@ -140,39 +140,60 @@ const PendulumScene = {
       p.colorMode(p.HSB, 360, 100, 100, 100);
       p.noStroke();
 
+      const glow = voice.triggerGlow || 0;
       const pulseRadius = baseRadius + voice.amplitude * baseRadius * 1.8;
 
-      // Outer glow
-      p.fill(hue, sat * 0.6, bri, 4 + voice.amplitude * 15);
-      p.ellipse(bobX, visualY, pulseRadius * 5, pulseRadius * 5);
+      // Outer glow — boosted by triggerGlow
+      p.fill(hue, sat * 0.6, bri, 4 + voice.amplitude * 15 + glow * 20);
+      p.ellipse(
+        bobX,
+        visualY,
+        pulseRadius * (5 + glow * 2),
+        pulseRadius * (5 + glow * 2),
+      );
 
-      // Core bob
-      p.fill(hue, sat * 0.5, bri, 60 + voice.amplitude * 40);
-      p.ellipse(bobX, visualY, pulseRadius, pulseRadius);
+      // Core bob — brighter with glow
+      p.fill(
+        hue,
+        sat * (0.5 - glow * 0.2),
+        bri + glow * 15,
+        60 + voice.amplitude * 40 + glow * 25,
+      );
+      p.ellipse(
+        bobX,
+        visualY,
+        pulseRadius * (1 + glow * 0.2),
+        pulseRadius * (1 + glow * 0.2),
+      );
 
       p.pop();
 
-      // ── Trigger Flash ──
-      if (voice.triggered) {
+      // ── Trigger Flash (fades with triggerGlow) ──
+      if (glow > 0.01) {
         p.push();
         p.colorMode(p.HSB, 360, 100, 100, 100);
 
         // Flash on center trigger line
         p.noStroke();
-        p.fill(hue, sat * 0.2, 100, 60 * voice.amplitude);
-        p.ellipse(cx, cy, pulseRadius * 3, pulseRadius * 0.5);
-        p.ellipse(cx, cy, pulseRadius * 0.5, pulseRadius * 3);
+        p.fill(hue, sat * 0.2, 100, glow * 50);
+        p.ellipse(cx, cy, pulseRadius * 3 * glow, pulseRadius * 0.5);
+        p.ellipse(cx, cy, pulseRadius * 0.5, pulseRadius * 3 * glow);
 
-        // Line from center to bob at trigger
-        p.stroke(hue, sat * 0.5, 100, 40);
-        p.strokeWeight(1.5);
+        // Line from center to bob — fades out
+        p.stroke(hue, sat * 0.5, 100, glow * 40);
+        p.strokeWeight(0.5 + glow * 1.5);
         p.line(cx, cy, bobX, visualY);
 
-        // Ring ripple at bob
+        // Ring ripple at bob — expands as it fades
         p.noFill();
-        p.stroke(hue, sat * 0.5, 100, 60);
-        p.strokeWeight(2);
-        p.ellipse(bobX, visualY, pulseRadius * 3, pulseRadius * 3);
+        p.stroke(hue, sat * 0.5, 100, glow * 60);
+        p.strokeWeight(1 + glow);
+        p.ellipse(
+          bobX,
+          visualY,
+          pulseRadius * (3 + (1 - glow) * 4),
+          pulseRadius * (3 + (1 - glow) * 4),
+        );
 
         p.pop();
       }

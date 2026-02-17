@@ -44,7 +44,12 @@
       );
     }
     engine.voices.forEach((v, i) => {
-      v.note = notes[i];
+      if (v.sameNoteAsPrevious && i > 0) {
+        // Keep this voice locked to previous voice note
+        v.note = { ...engine.voices[i - 1].note };
+      } else {
+        v.note = notes[i];
+      }
     });
   }
 
@@ -135,6 +140,70 @@
       const oct = cfg.preset.ambientOctave ?? 0;
       ambOctSlider.value = oct;
       if (ambOctVal) ambOctVal.textContent = oct > 0 ? `+${oct}` : oct;
+    }
+
+    // Sync Generator fields
+    const parsedManualForPreset = cfg.preset.manualVoices
+      ? Config.parseManualVoices(cfg.preset.manualVoices)
+      : null;
+    const effectiveRatios = parsedManualForPreset
+      ? parsedManualForPreset.map((v) => v.ratio)
+      : cfg.preset.ratios;
+
+    const voiceCountSlider = document.getElementById('adv-voice-count');
+    const voiceCountVal = document.getElementById('adv-voice-count-val');
+    if (voiceCountSlider) {
+      voiceCountSlider.value = effectiveRatios.length;
+      if (voiceCountVal) voiceCountVal.textContent = effectiveRatios.length;
+    }
+    const ratioStart = document.getElementById('adv-ratio-start');
+    const ratioEnd = document.getElementById('adv-ratio-end');
+    if (ratioStart && effectiveRatios.length > 0) {
+      ratioStart.value = effectiveRatios[0].toFixed(2);
+    }
+    if (ratioEnd && effectiveRatios.length > 1) {
+      ratioEnd.value = effectiveRatios[effectiveRatios.length - 1].toFixed(2);
+    }
+    const easingSelect = document.getElementById('adv-easing');
+    if (easingSelect) {
+      easingSelect.value = cfg.preset.easing || 'sine';
+    }
+
+    // Sync Manual Voices field
+    const manualVoicesEl = document.getElementById('adv-manual-voices');
+    if (manualVoicesEl) {
+      manualVoicesEl.value = cfg.preset.manualVoices || '';
+    }
+
+    // Sync Harmony fields
+    if (scaleDropdown) {
+      scaleDropdown.value = cfg.preset.scale || 'chromatic';
+    }
+    const rootInput = document.getElementById('adv-root');
+    if (rootInput) {
+      rootInput.value = cfg.preset.rootNote || 'C4';
+    }
+    const maxNoteInput = document.getElementById('adv-max-note');
+    if (maxNoteInput) {
+      maxNoteInput.value = cfg.preset.maxNote || '';
+    }
+
+    // Sync Progression fields
+    const chordRatioSlider = document.getElementById('adv-chord-ratio');
+    const chordRatioVal = document.getElementById('adv-chord-ratio-val');
+    if (chordRatioSlider) {
+      chordRatioSlider.value = cfg.preset.chordRatio ?? 1;
+      if (chordRatioVal) chordRatioVal.textContent = cfg.preset.chordRatio ?? 1;
+    }
+    const progInput = document.getElementById('adv-progression');
+    if (progInput) {
+      progInput.value = (cfg.preset.chordProgression || []).join(' ');
+    }
+
+    // Sync Connect Neighbors
+    const connectCheckbox = document.getElementById('adv-connect-neighbors');
+    if (connectCheckbox) {
+      connectCheckbox.checked = !!cfg.preset.connectNeighbors;
     }
 
     return cfg;
@@ -234,6 +303,7 @@
           const options = {
             easing: preset ? preset.easing || 'sine' : 'sine',
             elapsedBeats: engine.elapsedBeats,
+            connectNeighbors: preset ? !!preset.connectNeighbors : false,
           };
           renderer.draw(p, engine.voices, p.width, p.height, options);
         }
@@ -248,8 +318,12 @@
             preset?.chordProgression?.[currentChordIndex] || 'N/A';
           const fps = p.frameRate().toFixed(0);
 
-          // Build compact note list (show note names for all voices)
-          const noteNames = engine.voices.map((v) => v.note?.name || '?');
+          // Build compact note list (show note names + delay for all voices)
+          const noteNames = engine.voices.map((v) => {
+            let name = v.note?.name || '?';
+            if (v.startDelay > 0) name += `+${v.startDelay.toFixed(1)}s`;
+            return name;
+          });
           // Group into rows of 8 for readability
           const noteRows = [];
           for (let ni = 0; ni < noteNames.length; ni += 8) {
@@ -353,6 +427,19 @@ Hit:     ${triggered || '-'}`;
   presetSelect.addEventListener('change', async (e) => {
     const key = e.target.value;
     buildFromPreset(key);
+
+    // Reset speed multiplier
+    if (typeof baselineBpm !== 'undefined') {
+      baselineBpm = null;
+      const speedEl = document.getElementById('mix-speed');
+      const speedValEl = document.getElementById('mix-speed-val');
+      if (speedEl) {
+        speedEl.value = 1;
+      }
+      if (speedValEl) {
+        speedValEl.textContent = '1.0';
+      }
+    }
 
     if (audioLayer) {
       await audioLayer.reinit(engine.voices);
@@ -522,6 +609,13 @@ Hit:     ${triggered || '-'}`;
     }
   });
 
+  // Connect-neighbors checkbox updates the preset live
+  const advConnectNeighbors = document.getElementById('adv-connect-neighbors');
+  advConnectNeighbors.addEventListener('change', () => {
+    const preset = Config.PRESETS[currentPresetKey];
+    if (preset) preset.connectNeighbors = advConnectNeighbors.checked;
+  });
+
   advancedBtn.addEventListener('click', () => {
     sidebar.classList.add('open');
     controlsPanel.classList.remove('open');
@@ -563,17 +657,107 @@ Hit:     ${triggered || '-'}`;
 
   // Removed invalid listeners for ratio-start/end-val since they don't exist in new UI
 
+  // ── Mixer Drawer ──
+  const mixerBtn = document.getElementById('mixer-btn');
+  const mixerDrawer = document.getElementById('mixer-drawer');
+  const closeMixer = document.getElementById('close-mixer');
+
+  mixerBtn.addEventListener('click', () => {
+    mixerDrawer.classList.toggle('open');
+  });
+  closeMixer.addEventListener('click', () => {
+    mixerDrawer.classList.remove('open');
+  });
+
+  // Reverb Mix
+  const mixReverb = document.getElementById('mix-reverb');
+  const mixReverbVal = document.getElementById('mix-reverb-val');
+  mixReverb.addEventListener('input', () => {
+    const val = parseInt(mixReverb.value);
+    mixReverbVal.textContent = val;
+    if (audioLayer) audioLayer.setReverbMix(val);
+    if (ambientLayer) ambientLayer.setReverbMix(val);
+  });
+
+  // Reverb Size (feedback)
+  const mixReverbSize = document.getElementById('mix-reverb-size');
+  const mixReverbSizeVal = document.getElementById('mix-reverb-size-val');
+  mixReverbSize.addEventListener('input', () => {
+    const val = parseInt(mixReverbSize.value);
+    mixReverbSizeVal.textContent = val;
+    if (audioLayer) audioLayer.setFeedback(val);
+    if (ambientLayer) ambientLayer.setFeedback(val);
+  });
+
+  // Delay Time
+  const mixDelay = document.getElementById('mix-delay');
+  const mixDelayVal = document.getElementById('mix-delay-val');
+  mixDelay.addEventListener('input', () => {
+    const ms = parseInt(mixDelay.value);
+    mixDelayVal.textContent = ms;
+    const sec = ms / 1000;
+    if (audioLayer) audioLayer.setDelayTime(sec);
+    if (ambientLayer) ambientLayer.setDelayTime(sec);
+  });
+
+  // Speed Multiplier
+  const mixSpeed = document.getElementById('mix-speed');
+  const mixSpeedVal = document.getElementById('mix-speed-val');
+  let baselineBpm = null; // stored when speed is first adjusted
+  mixSpeed.addEventListener('input', () => {
+    const mult = parseFloat(mixSpeed.value);
+    mixSpeedVal.textContent = mult.toFixed(1);
+    if (!engine) return;
+    if (baselineBpm === null) baselineBpm = engine.bpm;
+    const newBpm = baselineBpm * mult;
+    engine.setBpm(newBpm);
+    // Update BPM display (don't change slider — speed is separate)
+    bpmValue.textContent = newBpm.toFixed(1);
+  });
+
+  // Sound Type
+  const mixSoundType = document.getElementById('mix-sound-type');
+  mixSoundType.addEventListener('change', () => {
+    if (audioLayer) audioLayer.setSoundType(mixSoundType.value);
+  });
+
+  // Filter
+  const mixFilter = document.getElementById('mix-filter');
+  const mixFilterVal = document.getElementById('mix-filter-val');
+  mixFilter.addEventListener('input', () => {
+    const freq = parseInt(mixFilter.value);
+    mixFilterVal.textContent = freq;
+    if (audioLayer) audioLayer.setFilterFreq(freq);
+    if (ambientLayer) ambientLayer.setFilterFreq(freq);
+  });
+
+  // Reset baseline BPM when preset changes or BPM slider moves
+  bpmSlider.addEventListener('input', () => {
+    baselineBpm = null;
+    mixSpeed.value = 1;
+    mixSpeedVal.textContent = '1.0';
+  });
+
   // ── Resolution Calculation ──
   const resolutionDisplay = document.getElementById('resolution-display');
   function updateResolution() {
-    const count = parseInt(document.getElementById('adv-voice-count').value);
-    const rStart = parseFloat(document.getElementById('adv-ratio-start').value);
-    const rEnd = parseFloat(document.getElementById('adv-ratio-end').value);
+    const manualInput = document.getElementById('adv-manual-voices').value;
+    const parsedManual = Config.parseManualVoices(manualInput);
     const bpm = parseFloat(bpmSlider.value) || 60;
 
-    if (isNaN(count)) return;
+    let ratios;
+    if (parsedManual) {
+      ratios = parsedManual.map((v) => v.ratio);
+    } else {
+      const count = parseInt(document.getElementById('adv-voice-count').value);
+      const rStart = parseFloat(
+        document.getElementById('adv-ratio-start').value,
+      );
+      const rEnd = parseFloat(document.getElementById('adv-ratio-end').value);
+      if (isNaN(count)) return;
+      ratios = Config.createSmoothRatios(count, rStart, rEnd);
+    }
 
-    const ratios = Config.createSmoothRatios(count, rStart, rEnd);
     const beats = Config.getPolyrhythmResolution(ratios);
 
     currentResolutionBeats = beats || 1;
@@ -602,6 +786,9 @@ Hit:     ${triggered || '-'}`;
   ['adv-voice-count', 'adv-ratio-start', 'adv-ratio-end'].forEach((id) => {
     document.getElementById(id).addEventListener('input', updateResolution);
   });
+  document
+    .getElementById('adv-manual-voices')
+    .addEventListener('input', updateResolution);
   bpmSlider.addEventListener('input', updateResolution);
   bpmNumber.addEventListener('input', updateResolution);
   // Init
@@ -609,12 +796,38 @@ Hit:     ${triggered || '-'}`;
 
   // Apply Custom Config
   applyCustomBtn.addEventListener('click', async () => {
-    const count = parseInt(document.getElementById('adv-voice-count').value);
-    const rStart = parseFloat(document.getElementById('adv-ratio-start').value);
-    const rEnd = parseFloat(document.getElementById('adv-ratio-end').value);
+    const manualInput = document.getElementById('adv-manual-voices').value;
+    const parsedManual = Config.parseManualVoices(manualInput);
 
-    // Generate ratios
-    const ratios = Config.createSmoothRatios(count, rStart, rEnd);
+    let ratios;
+    let delays; // array of startDelay in seconds
+    let sameNoteFlags;
+
+    if (parsedManual) {
+      // Manual mode — use parsed ratios and delays
+      const bpm = parseFloat(bpmSlider.value) || 60;
+      ratios = parsedManual.map((v) => v.ratio);
+      delays = parsedManual.map((v) => {
+        if (v.delayUnit === 'b') {
+          // Convert beats to seconds
+          return (v.delaySec * 60) / bpm;
+        }
+        return v.delaySec;
+      });
+      sameNoteFlags = parsedManual.map((v) => !!v.sameAsPrevious);
+    } else {
+      // Generator mode
+      const count = parseInt(document.getElementById('adv-voice-count').value);
+      const rStart = parseFloat(
+        document.getElementById('adv-ratio-start').value,
+      );
+      const rEnd = parseFloat(document.getElementById('adv-ratio-end').value);
+      ratios = Config.createSmoothRatios(count, rStart, rEnd);
+      delays = ratios.map(() => 0);
+      sameNoteFlags = ratios.map(() => false);
+    }
+
+    const count = ratios.length;
 
     // Read Harmony
     const scaleKey = advScale.value;
@@ -642,13 +855,18 @@ Hit:     ${triggered || '-'}`;
       spatialPatternKey,
     );
 
-    const voices = ratios.map((ratio, i) => ({
-      ratio,
-      note: notes[i],
-      color: colors[i],
-      visualPhaseOffset: phaseOffsets[i],
-      spatialOffset: spatialOffsets[i],
-    }));
+    const voices = ratios.map((ratio, i) => {
+      const note = sameNoteFlags[i] && i > 0 ? { ...notes[i - 1] } : notes[i];
+      return {
+        ratio,
+        note,
+        color: colors[i],
+        visualPhaseOffset: phaseOffsets[i],
+        spatialOffset: spatialOffsets[i],
+        startDelay: delays[i] || 0,
+        sameNoteAsPrevious: sameNoteFlags[i] || false,
+      };
+    });
 
     // Apply to Engine
     engine.chordRatio = chordRatio;
@@ -662,12 +880,14 @@ Hit:     ${triggered || '-'}`;
     Config.PRESETS['custom'] = {
       name: 'Custom Configuration',
       ratios,
+      manualVoices: manualInput.trim() || '',
       scale: scaleKey,
       rootNote,
       maxNote,
       chordRatio,
       chordProgression,
       chordTonesOnly: advChordTonesOnly.checked,
+      connectNeighbors: advConnectNeighbors.checked,
       ambientOctave: parseInt(advAmbientOctave.value) || 0,
       visualPhasePattern: phasePatternKey,
       spatialPattern: spatialPatternKey,

@@ -1,347 +1,266 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta
-      name="description"
-      content="A generative audio-visual polyrhythm engine — hypnotic, evolving patterns of sound and motion."
-    />
-    <title>Polyrhythm Engine</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="css/style.css" />
-  </head>
 
-  <body>
-    <!-- Start Overlay (required for Web Audio context) -->
-    <div id="start-overlay">
-      <div class="start-card">
-        <h1>Polyrhythm Engine</h1>
-        <p class="subtitle">Generative audio-visual polyrhythms</p>
-        <button id="start-btn">Begin Experience</button>
-        <p class="hint">Audio requires user interaction to start</p>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description"
+    content="A generative audio-visual polyrhythm engine — hypnotic, evolving patterns of sound and motion." />
+  <title>Polyrhythm Engine</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+
+<body>
+  <!-- Start Overlay (required for Web Audio context) -->
+  <div id="start-overlay">
+    <div class="start-card">
+      <h1>Polyrhythm Engine</h1>
+      <p class="subtitle">Generative audio-visual polyrhythms</p>
+      <button id="start-btn">Begin Experience</button>
+      <p class="hint">Audio requires user interaction to start</p>
+    </div>
+  </div>
+
+  <!-- Control Panel -->
+  <div id="controls" class="controls hidden">
+    <button id="controls-toggle" class="controls-toggle" aria-label="Toggle controls">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5" />
+        <circle cx="10" cy="10" r="3" stroke="currentColor" stroke-width="1.5" />
+        <line x1="10" y1="2" x2="10" y2="0" stroke="currentColor" stroke-width="1.5" />
+        <line x1="10" y1="20" x2="10" y2="18" stroke="currentColor" stroke-width="1.5" />
+        <line x1="2" y1="10" x2="0" y2="10" stroke="currentColor" stroke-width="1.5" />
+        <line x1="20" y1="10" x2="18" y2="10" stroke="currentColor" stroke-width="1.5" />
+      </svg>
+    </button>
+    <div id="controls-panel" class="controls-panel">
+      <div class="control-group">
+        <label for="preset-select">Preset</label>
+        <select id="preset-select"></select>
+      </div>
+      <div class="control-group">
+        <label for="scene-select">Scene</label>
+        <select id="scene-select">
+          <option value="pendulum">Pendulum</option>
+          <option value="bouncing-boxes">Bouncing Boxes</option>
+          <option value="circular-orbits">Circular Orbits</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label for="bpm-slider">BPM <span id="bpm-value">60</span></label>
+        <input type="number" id="bpm-number" min="0.01" max="120" value="60" step="0.01" />
+        <input type="range" id="bpm-slider" min="0.01" max="120" value="60" step="0.01" />
+      </div>
+      <div class="control-group">
+        <label for="volume-slider">Volume <span id="volume-value">80</span>%</label>
+        <input type="range" id="volume-slider" min="0" max="100" value="80" step="1" />
+      </div>
+      <div class="control-group">
+        <button id="pause-btn" class="btn-secondary">Pause</button>
+        <button id="advanced-btn" class="btn-secondary" style="margin-top: 10px">
+          Advanced...
+        </button>
+        <button id="mixer-btn" class="btn-secondary" style="margin-top: 6px">
+          Mixer
+        </button>
       </div>
     </div>
+  </div>
 
-    <!-- Control Panel -->
-    <div id="controls" class="controls hidden">
-      <button
-        id="controls-toggle"
-        class="controls-toggle"
-        aria-label="Toggle controls"
-      >
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <circle
-            cx="10"
-            cy="10"
-            r="8"
-            stroke="currentColor"
-            stroke-width="1.5"
-          />
-          <circle
-            cx="10"
-            cy="10"
-            r="3"
-            stroke="currentColor"
-            stroke-width="1.5"
-          />
-          <line
-            x1="10"
-            y1="2"
-            x2="10"
-            y2="0"
-            stroke="currentColor"
-            stroke-width="1.5"
-          />
-          <line
-            x1="10"
-            y1="20"
-            x2="10"
-            y2="18"
-            stroke="currentColor"
-            stroke-width="1.5"
-          />
-          <line
-            x1="2"
-            y1="10"
-            x2="0"
-            y2="10"
-            stroke="currentColor"
-            stroke-width="1.5"
-          />
-          <line
-            x1="20"
-            y1="10"
-            x2="18"
-            y2="10"
-            stroke="currentColor"
-            stroke-width="1.5"
-          />
-        </svg>
-      </button>
-      <div id="controls-panel" class="controls-panel">
-        <div class="control-group">
-          <label for="preset-select">Preset</label>
-          <select id="preset-select"></select>
-        </div>
-        <div class="control-group">
-          <label for="scene-select">Scene</label>
-          <select id="scene-select">
-            <option value="pendulum">Pendulum</option>
-            <option value="bouncing-boxes">Bouncing Boxes</option>
-            <option value="circular-orbits">Circular Orbits</option>
-          </select>
-        </div>
-        <div class="control-group">
-          <label for="bpm-slider">BPM <span id="bpm-value">60</span></label>
-          <input
-            type="number"
-            id="bpm-number"
-            min="0.01"
-            max="120"
-            value="60"
-            step="0.01"
-          />
-          <input
-            type="range"
-            id="bpm-slider"
-            min="0.01"
-            max="120"
-            value="60"
-            step="0.01"
-          />
-        </div>
-        <div class="control-group">
-          <label for="volume-slider"
-            >Volume <span id="volume-value">80</span>%</label
-          >
-          <input
-            type="range"
-            id="volume-slider"
-            min="0"
-            max="100"
-            value="80"
-            step="1"
-          />
-        </div>
-        <div class="control-group">
-          <button id="pause-btn" class="btn-secondary">Pause</button>
-          <button
-            id="advanced-btn"
-            class="btn-secondary"
-            style="margin-top: 10px"
-          >
-            Advanced...
-          </button>
-        </div>
-      </div>
+  <!-- Advanced Sidebar -->
+  <div id="advanced-sidebar" class="sidebar">
+    <div class="sidebar-header">
+      <h2>Advanced Controls</h2>
+      <button id="close-advanced" class="close-btn">&times;</button>
     </div>
 
-    <!-- Advanced Sidebar -->
-    <div id="advanced-sidebar" class="sidebar">
-      <div class="sidebar-header">
-        <h2>Advanced Controls</h2>
-        <button id="close-advanced" class="close-btn">&times;</button>
-      </div>
-
-      <div class="sidebar-content">
-        <div class="adv-section">
-          <h3>Generator</h3>
-          <div class="control-group">
-            <label>Voice Count: <span id="adv-voice-count-val">10</span></label>
-            <input
-              type="range"
-              id="adv-voice-count"
-              min="1"
-              max="100"
-              value="10"
-            />
+    <div class="sidebar-content">
+      <div class="adv-section">
+        <h3>Generator</h3>
+        <div class="control-group">
+          <label>Voice Count: <span id="adv-voice-count-val">10</span></label>
+          <input type="range" id="adv-voice-count" min="1" max="100" value="10" />
+        </div>
+        <div class="control-group">
+          <label>Ratio Range</label>
+          <div class="row">
+            <input type="number" id="adv-ratio-start" step="any" value="1.00" class="input-sm" />
+            <span>to</span>
+            <input type="number" id="adv-ratio-end" step="any" value="1.25" class="input-sm" />
           </div>
-          <div class="control-group">
-            <label>Ratio Range</label>
-            <div class="row">
-              <input
-                type="number"
-                id="adv-ratio-start"
-                step="any"
-                value="1.00"
-                class="input-sm"
-              />
-              <span>to</span>
-              <input
-                type="number"
-                id="adv-ratio-end"
-                step="any"
-                value="1.25"
-                class="input-sm"
-              />
-            </div>
-          </div>
-          <div class="control-group">
-            <label>Motion/Easing</label>
-            <select
-              id="adv-easing"
-              class="input-full"
-              style="
+        </div>
+        <div class="control-group">
+          <label>Manual Voices <small style="color:rgba(255,255,255,0.35)">(overrides generator)</small></label>
+          <textarea id="adv-manual-voices" class="input-full" rows="3"
+            placeholder="e.g. 1.0, 1.0+0.2s=prev, 1.05, 1.05+0.2s=prev"
+            style="resize:vertical; min-height:2.5rem; font-family:monospace; font-size:0.85rem;"></textarea>
+          <small style="color:rgba(255,255,255,0.35); font-size:0.65rem; display:block; margin-top:2px;">ratio +delay:
+            1.0+0.5s means ratio 1.0 delayed 0.5 seconds. Add =prev to reuse previous voice note.</small>
+        </div>
+        <div class="control-group">
+          <label>Motion/Easing</label>
+          <select id="adv-easing" class="input-full" style="
                 padding: 0.4rem;
                 background: rgba(0, 0, 0, 0.2);
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 6px;
                 color: #fff;
-              "
-            >
-              <option value="sine">Sine (Pendulum)</option>
-              <option value="linear">Linear (Triangle)</option>
-              <option value="bounce">Bounce</option>
-            </select>
+              ">
+            <option value="sine">Sine (Pendulum)</option>
+            <option value="linear">Linear (Triangle)</option>
+            <option value="bounce">Bounce</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label>Phase Layout</label>
+          <select id="adv-offset-pattern"></select>
+        </div>
+        <div class="control-group">
+          <label>Orbit Shape</label>
+          <select id="adv-spatial-pattern"></select>
+        </div>
+        <div class="control-group" style="flex-direction: row; align-items: center; gap: 0.5rem">
+          <input type="checkbox" id="adv-connect-neighbors" style="width: auto; accent-color: #7c7aff" />
+          <label for="adv-connect-neighbors" style="margin: 0; cursor: pointer; font-size: 0.85rem">Connect
+            neighbors</label>
+        </div>
+      </div>
+
+      <div class="adv-section">
+        <h3>Harmony</h3>
+        <div class="control-group">
+          <label>Scale</label>
+          <select id="adv-scale"></select>
+        </div>
+        <div class="control-group" style="flex-direction: row; align-items: center; gap: 0.5rem">
+          <input type="checkbox" id="adv-chord-tones-only" style="width: auto; accent-color: #7c7aff" />
+          <label for="adv-chord-tones-only" style="margin: 0; cursor: pointer; font-size: 0.85rem">Chord tones
+            only</label>
+        </div>
+        <div class="row">
+          <div class="control-group">
+            <label>Root</label>
+            <input type="text" id="adv-root" value="C4" class="input-sm" />
           </div>
           <div class="control-group">
-            <label>Phase Layout</label>
-            <select id="adv-offset-pattern"></select>
-          </div>
-          <div class="control-group">
-            <label>Orbit Shape</label>
-            <select id="adv-spatial-pattern"></select>
+            <label>Max</label>
+            <input type="text" id="adv-max-note" value="C6" class="input-sm" />
           </div>
         </div>
+      </div>
 
-        <div class="adv-section">
-          <h3>Harmony</h3>
-          <div class="control-group">
-            <label>Scale</label>
-            <select id="adv-scale"></select>
-          </div>
-          <div
-            class="control-group"
-            style="flex-direction: row; align-items: center; gap: 0.5rem"
-          >
-            <input
-              type="checkbox"
-              id="adv-chord-tones-only"
-              style="width: auto; accent-color: #7c7aff"
-            />
-            <label
-              for="adv-chord-tones-only"
-              style="margin: 0; cursor: pointer; font-size: 0.85rem"
-              >Chord tones only</label
-            >
-          </div>
-          <div class="row">
-            <div class="control-group">
-              <label>Root</label>
-              <input type="text" id="adv-root" value="C4" class="input-sm" />
-            </div>
-            <div class="control-group">
-              <label>Max</label>
-              <input
-                type="text"
-                id="adv-max-note"
-                value="C6"
-                class="input-sm"
-              />
-            </div>
-          </div>
+      <div class="adv-section">
+        <h3>Progression</h3>
+        <div class="control-group">
+          <label>Ambient Octave: <span id="adv-ambient-octave-val">0</span></label>
+          <input type="range" id="adv-ambient-octave" min="-3" max="3" step="1" value="0" />
         </div>
-
-        <div class="adv-section">
-          <h3>Progression</h3>
-          <div class="control-group">
-            <label
-              >Ambient Octave: <span id="adv-ambient-octave-val">0</span></label
-            >
-            <input
-              type="range"
-              id="adv-ambient-octave"
-              min="-3"
-              max="3"
-              step="1"
-              value="0"
-            />
-          </div>
-          <div class="control-group">
-            <label>Chord Ratio: <span id="adv-chord-ratio-val">1</span></label>
-            <input
-              type="range"
-              id="adv-chord-ratio"
-              min="0"
-              max="4"
-              step="0.1"
-              value="1"
-            />
-          </div>
-          <div class="control-group">
-            <label>Chord Progression (space separated)</label>
-            <input
-              type="text"
-              id="adv-progression"
-              value="CMaj7 Am7 FMaj7 G7"
-              placeholder="e.g. CMaj7 Am7 Dm7 G7"
-              class="input-full"
-            />
-            <small
-              style="
+        <div class="control-group">
+          <label>Chord Ratio: <span id="adv-chord-ratio-val">1</span></label>
+          <input type="range" id="adv-chord-ratio" min="0" max="4" step="0.1" value="1" />
+        </div>
+        <div class="control-group">
+          <label>Chord Progression (space separated)</label>
+          <input type="text" id="adv-progression" value="CMaj7 Am7 FMaj7 G7" placeholder="e.g. CMaj7 Am7 Dm7 G7"
+            class="input-full" />
+          <small style="
                 color: rgba(255, 255, 255, 0.4);
                 font-size: 0.7rem;
                 margin-top: 2px;
                 display: block;
-              "
-            >
-              Suffixes: Maj7 m7 7 dim aug sus2 sus4 m min Maj add9 9 dim7 5
-            </small>
-          </div>
+              ">
+            Suffixes: Maj7 m7 7 dim aug sus2 sus4 m min Maj add9 9 dim7 5
+          </small>
         </div>
       </div>
+    </div>
 
-      <div class="sidebar-footer">
-        <div
-          id="resolution-display"
-          style="
+    <div class="sidebar-footer">
+      <div id="resolution-display" style="
             font-size: 0.8rem;
             color: rgba(255, 255, 255, 0.6);
             margin-bottom: 0.5rem;
             font-family: monospace;
-          "
-        ></div>
+          "></div>
 
-        <!-- Progress Bar -->
+      <!-- Progress Bar -->
 
-        <button id="apply-custom-btn" class="btn-primary">
-          Generate & Apply
-        </button>
+      <button id="apply-custom-btn" class="btn-primary">
+        Generate & Apply
+      </button>
+    </div>
+  </div>
+  <!-- Close Sidebar -->
+
+  <!-- Mixer Drawer (slides up from bottom) -->
+  <div id="mixer-drawer" class="mixer-drawer">
+    <div class="mixer-header">
+      <h3>Mixer</h3>
+      <button id="close-mixer" class="close-btn">&times;</button>
+    </div>
+    <div class="mixer-controls">
+      <div class="mixer-group">
+        <label>Reverb Mix: <span id="mix-reverb-val">35</span>%</label>
+        <input type="range" id="mix-reverb" min="0" max="100" value="35" step="1" />
+      </div>
+      <div class="mixer-group">
+        <label>Reverb Size: <span id="mix-reverb-size-val">30</span>%</label>
+        <input type="range" id="mix-reverb-size" min="0" max="80" value="30" step="1" />
+      </div>
+      <div class="mixer-group">
+        <label>Delay Time: <span id="mix-delay-val">200</span>ms</label>
+        <input type="range" id="mix-delay" min="10" max="800" value="200" step="10" />
+      </div>
+      <div class="mixer-group">
+        <label>Speed: <span id="mix-speed-val">1.0</span>x</label>
+        <input type="range" id="mix-speed" min="0.1" max="4" value="1" step="0.1" />
+      </div>
+      <div class="mixer-group">
+        <label>Sound Type</label>
+        <select id="mix-sound-type">
+          <option value="sine">Sine (Soft)</option>
+          <option value="triangle">Triangle (Warm)</option>
+          <option value="square">Square (Chip)</option>
+          <option value="sawtooth">Sawtooth (Bright)</option>
+          <option value="pluck">Pluck (String)</option>
+        </select>
+      </div>
+      <div class="mixer-group">
+        <label>Filter: <span id="mix-filter-val">2800</span> Hz</label>
+        <input type="range" id="mix-filter" min="200" max="8000" value="2800" step="100" />
       </div>
     </div>
-    <!-- Close Sidebar -->
+  </div>
 
-    <!-- Info display -->
-    <div id="info-display" class="info-display hidden">
-      <span id="info-preset"></span>
-      <span id="info-elapsed"></span>
-    </div>
+  <!-- Info display -->
+  <div id="info-display" class="info-display hidden">
+    <span id="info-preset"></span>
+    <span id="info-elapsed"></span>
+  </div>
 
-    <!-- Main Progress Bar -->
-    <div class="main-progress-bar">
-      <div id="resolution-progress-fill"></div>
-    </div>
+  <!-- Main Progress Bar -->
+  <div class="main-progress-bar">
+    <div id="resolution-progress-fill"></div>
+  </div>
 
-    <!-- Libraries -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+  <!-- Libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
 
-    <!-- App modules -->
-    <script src="js/config.js"></script>
-    <script src="js/timing-engine.js"></script>
-    <script src="js/audio-layer.js"></script>
-    <script src="js/ambient-layer.js"></script>
-    <script src="js/space-background.js"></script>
-    <script src="js/scenes/pendulum.js"></script>
-    <script src="js/scenes/bouncing-boxes.js"></script>
-    <script src="js/scenes/circular-orbits.js"></script>
-    <script src="js/renderer.js"></script>
-    <script src="js/main.js"></script>
-  </body>
+  <!-- App modules -->
+  <script src="js/config.js"></script>
+  <script src="js/timing-engine.js"></script>
+  <script src="js/audio-layer.js"></script>
+  <script src="js/ambient-layer.js"></script>
+  <script src="js/space-background.js"></script>
+  <script src="js/scenes/pendulum.js"></script>
+  <script src="js/scenes/bouncing-boxes.js"></script>
+  <script src="js/scenes/circular-orbits.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/main.js"></script>
+</body>
+
 </html>

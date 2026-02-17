@@ -94,6 +94,30 @@ class AmbientLayer {
     }
   }
 
+  /** Set delay wet mix 0–100 */
+  setReverbMix(percent) {
+    if (this.disposed || !this.delay) return;
+    this.delay.wet.value = Math.min(percent / 100, 0.9);
+  }
+
+  /** Set delay time in seconds */
+  setDelayTime(seconds) {
+    if (this.disposed || !this.delay) return;
+    this.delay.delayTime.value = Math.min(seconds, 0.99);
+  }
+
+  /** Set delay feedback 0–80 */
+  setFeedback(percent) {
+    if (this.disposed || !this.delay) return;
+    this.delay.feedback.value = Math.min(percent / 100, 0.85);
+  }
+
+  /** Set filter cutoff in Hz */
+  setFilterFreq(freq) {
+    if (this.disposed || !this.filter) return;
+    this.filter.frequency.value = freq;
+  }
+
   /** Tear down all Tone nodes so nothing keeps playing. */
   dispose() {
     this.disposed = true;

@@ -570,10 +570,34 @@ const Config = (() => {
     simpleMajor: {
       name: 'Fast Major Progression',
       ratios: createSmoothRatios(8, 1, 1.5),
+      // Manual voice mode example:
+      // ratio, ratio+delay, ratio, ratio+delay ...
+      manualVoices:
+        '1.0, 1.0+0.2s, 1.05, 1.05+0.2s, 1.1, 1.1+0.2s, 1.2, 1.2+0.2s',
       scale: 'major',
       rootNote: 'C4',
       bpm: 60,
       description: 'Simple progression through common chords',
+      chordRatio: 1,
+      chordProgression: ['CMaj7', 'GMaj7', 'AMin7', 'FMaj7'],
+      chordTonesOnly: true,
+      ambientOctave: 1,
+    },
+    splitDelay: {
+      name: 'Split Delay',
+      manualVoices: createSmoothRatios(16, 1, 1.5)
+        .map((r) => {
+          const delays = [0.1].map(
+            (d, i) => `${(r + 0.01 * i + d).toFixed(2)}+${d}s`,
+          );
+          return [r.toFixed(2), ...delays].join(', ');
+        })
+        .join(', '),
+      scale: 'major',
+      maxNote: 'C7',
+      rootNote: 'C4',
+      bpm: 10,
+      description: '16 voices with split delay (each voice has a delayed twin)',
       chordRatio: 1,
       chordProgression: ['CMaj7', 'GMaj7', 'AMin7', 'FMaj7'],
       chordTonesOnly: true,
@@ -708,11 +732,81 @@ const Config = (() => {
   };
 
   /**
+   * Parse a manual voice definition string.
+   * Syntax: comma-separated entries, each is `ratio`, `ratio+Xs`, or
+   * `ratio+Xs=prev` / `ratio=prev`.
+   *
+   * - Xs => delay in seconds
+   * - Xb => delay in beats
+   * - =prev (or =same) => force this voice to reuse previous voice note
+   *
+   * Examples:
+   *   "1.0, 1.0+0.2s, 1.05, 1.05+0.2s"
+   *   "1, 1.5, 2"
+   *   "0.5+1s, 1.0, 1.0+0.5s"
+   *
+   * @param {string} input
+   * @returns {Array<{ratio: number, delaySec: number, delayUnit: string, sameAsPrevious: boolean}>|null}
+   */
+  function parseManualVoices(input) {
+    if (!input || !input.trim()) return null;
+    const entries = input
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    if (entries.length === 0) return null;
+
+    const result = [];
+    for (const entry of entries) {
+      // Match: number, optional +number with 's' or 'b' suffix,
+      // and optional =prev / =same note tag
+      const match = entry.match(
+        /^([\d.]+)(?:\+([\d.]+)(s|b))?(?:=(prev|same))?$/i,
+      );
+      if (!match) {
+        console.warn(`Invalid manual voice entry: "${entry}"`);
+        continue;
+      }
+      const ratio = parseFloat(match[1]);
+      const delayVal = match[2] ? parseFloat(match[2]) : 0;
+      const delayUnit = match[3] || 's';
+      const sameAsPrevious = !!match[4];
+      if (!isNaN(ratio) && ratio > 0) {
+        result.push({ ratio, delaySec: delayVal, delayUnit, sameAsPrevious });
+      }
+    }
+    return result.length > 0 ? result : null;
+  }
+
+  /**
    * Build a full voice configuration from a preset key.
    */
   function buildVoiceConfig(presetKey) {
     const preset = PRESETS[presetKey];
     if (!preset) return null;
+
+    // Parse manual voices if defined
+    const manualParsed = preset.manualVoices
+      ? parseManualVoices(preset.manualVoices)
+      : null;
+
+    // Determine ratios and delays
+    let ratios, delays, sameNoteFlags;
+    if (manualParsed) {
+      ratios = manualParsed.map((v) => v.ratio);
+      const bpm = preset.bpm || 60;
+      delays = manualParsed.map((v) => {
+        if (v.delayUnit === 'b') return (v.delaySec * 60) / bpm;
+        return v.delaySec;
+      });
+      sameNoteFlags = manualParsed.map((v) => !!v.sameAsPrevious);
+    } else {
+      ratios = preset.ratios;
+      delays = ratios.map(() => 0);
+      sameNoteFlags = ratios.map(() => false);
+    }
+
+    const count = ratios.length;
     const rootMidi = noteNameToMidi(preset.rootNote);
     const maxMidi = preset.maxNote ? noteNameToMidi(preset.maxNote) : null;
 
@@ -727,34 +821,39 @@ const Config = (() => {
       notes = getVoiceNotesFromChord(
         parsed.rootMidi,
         parsed.chordTypeKey,
-        preset.ratios.length,
+        count,
         maxMidi,
       );
     } else {
-      notes = getNotesForScale(
-        rootMidi,
-        preset.scale,
-        preset.ratios.length,
-        maxMidi,
-      );
+      notes = getNotesForScale(rootMidi, preset.scale, count, maxMidi);
     }
-    const colors = generateColors(preset.ratios.length);
+    const colors = generateColors(count);
     const phaseOffsets = generatePhaseOffsets(
-      preset.ratios.length,
+      count,
       preset.visualPhasePattern || 'none',
     );
     const spatialOffsets = generateSpatialOffsets(
-      preset.ratios.length,
+      count,
       preset.spatialPattern || 'none',
     );
+    const finalNotes = notes.map((note, i) => {
+      if (sameNoteFlags[i] && i > 0) {
+        const prev = notes[i - 1];
+        return { ...prev };
+      }
+      return note;
+    });
+
     return {
       preset,
-      voices: preset.ratios.map((ratio, i) => ({
+      voices: ratios.map((ratio, i) => ({
         ratio,
-        note: notes[i],
+        note: finalNotes[i],
         color: colors[i],
         visualPhaseOffset: phaseOffsets[i],
         spatialOffset: spatialOffsets[i],
+        startDelay: delays[i] || 0,
+        sameNoteAsPrevious: sameNoteFlags[i] || false,
       })),
     };
   }
@@ -821,6 +920,7 @@ const Config = (() => {
     generateSpatialOffsets,
     buildVoiceConfig,
     createSmoothRatios,
+    parseManualVoices,
     getPolyrhythmResolution,
   };
 })();
