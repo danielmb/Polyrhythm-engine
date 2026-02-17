@@ -112,6 +112,8 @@ const CircularOrbitsScene = {
       const [hue, sat, bri] = voice.color;
       const baseSize = Math.min(w, h) * 0.02;
       const glow = voice.triggerGlow || 0;
+      const activity = Math.max(voice.amplitude || 0, glow);
+      const idle = 1 - Math.min(activity, 1);
       const size = baseSize + voice.amplitude * baseSize * 2;
 
       // Leave trail
@@ -130,6 +132,12 @@ const CircularOrbitsScene = {
       p.push();
       p.colorMode(p.HSB, 360, 100, 100, 100);
       p.noStroke();
+
+      // Subtle dim halo when voice is idle (not playing)
+      if (idle > 0.05) {
+        p.fill(0, 0, 0, idle * 8);
+        p.ellipse(ox, oy, size * (5 + idle * 2), size * (5 + idle * 2));
+      }
 
       // Outer glow — boosted by triggerGlow
       p.fill(hue, sat * 0.5, bri, 4 + voice.amplitude * 12 + glow * 20);
