@@ -178,6 +178,33 @@ const BouncingBoxesScene = {
         p.pop();
       }
     }
+
+    // ── Chord Change Flash ──
+    const ccGlow = options.chordChangeGlow || 0;
+    if (ccGlow > 0.01) {
+      p.push();
+      p.colorMode(p.HSB, 360, 100, 100, 100);
+      // Ground flash — bright line that fades
+      p.stroke(220, 25, 100, ccGlow * 45);
+      p.strokeWeight(2 + ccGlow * 3);
+      p.line(
+        spacing * 0.5,
+        baseY + boxSize * 0.5 + 4,
+        w - spacing * 0.5,
+        baseY + boxSize * 0.5 + 4,
+      );
+      // Expanding ring from center
+      const ringR = Math.min(w, h) * 0.1 * (1 + (1 - ccGlow) * 4);
+      p.noFill();
+      p.stroke(270, 20, 100, ccGlow * 30);
+      p.strokeWeight(1.5 + ccGlow * 2);
+      p.ellipse(w / 2, baseY, ringR * 2, ringR * 2);
+      // Soft screen tint
+      p.noStroke();
+      p.fill(240, 10, 100, ccGlow * 8);
+      p.rect(0, 0, w, h);
+      p.pop();
+    }
   },
 
   teardown() {

@@ -15,6 +15,8 @@
   let currentChordIndex = 0;
   let ambientLayer;
   let currentResolutionBeats = 1;
+  let chordChangeGlow = 0;
+  let chordChangeEffect = true;
   let started = false;
 
   /**
@@ -306,7 +308,18 @@
 
             // Update UI (Show chord symbol)
             infoPreset.textContent = `${preset.name} (${parsed.displayName})`;
+
+            // Spike chord change glow for visual effect
+            if (chordChangeEffect) {
+              chordChangeGlow = 1.0;
+            }
           }
+        }
+
+        // Decay chord change glow
+        if (chordChangeGlow > 0.001) {
+          chordChangeGlow *= 0.96;
+          if (chordChangeGlow < 0.001) chordChangeGlow = 0;
         }
 
         // Update audio
@@ -318,7 +331,8 @@
           const options = {
             easing: preset ? preset.easing || 'sine' : 'sine',
             elapsedBeats: engine.elapsedBeats,
-            connectNeighbors: preset ? !!preset.connectNeighbors : false,
+            connectNeighbors: preset ? preset.connectNeighbors !== false : true,
+            chordChangeGlow: chordChangeGlow,
           };
           renderer.draw(p, engine.voices, p.width, p.height, options);
         }
@@ -629,6 +643,15 @@ Hit:     ${triggered || '-'}`;
   advConnectNeighbors.addEventListener('change', () => {
     const preset = Config.PRESETS[currentPresetKey];
     if (preset) preset.connectNeighbors = advConnectNeighbors.checked;
+  });
+
+  // Chord change effect checkbox
+  const advChordChangeEffect = document.getElementById(
+    'adv-chord-change-effect',
+  );
+  advChordChangeEffect.addEventListener('change', () => {
+    chordChangeEffect = advChordChangeEffect.checked;
+    if (!chordChangeEffect) chordChangeGlow = 0;
   });
 
   advancedBtn.addEventListener('click', () => {

@@ -195,6 +195,29 @@ const CircularOrbitsScene = {
         p.pop();
       }
     }
+
+    // ── Chord Change Flash ──
+    const ccGlow = options.chordChangeGlow || 0;
+    if (ccGlow > 0.01) {
+      p.push();
+      p.colorMode(p.HSB, 360, 100, 100, 100);
+      p.noFill();
+      // Expanding ring from center
+      const ringRadius = minRadius * (1 + (1 - ccGlow) * 6);
+      p.stroke(220, 30, 100, ccGlow * 40);
+      p.strokeWeight(2 + ccGlow * 3);
+      p.ellipse(cx, cy, ringRadius * 2, ringRadius * 2);
+      // Second ring slightly delayed
+      const ring2 = minRadius * (1 + (1 - ccGlow) * 4);
+      p.stroke(280, 25, 100, ccGlow * 25);
+      p.strokeWeight(1 + ccGlow * 2);
+      p.ellipse(cx, cy, ring2 * 2, ring2 * 2);
+      // Center flash
+      p.noStroke();
+      p.fill(240, 15, 100, ccGlow * 30);
+      p.ellipse(cx, cy, minRadius * ccGlow * 3, minRadius * ccGlow * 3);
+      p.pop();
+    }
   },
 
   teardown() {

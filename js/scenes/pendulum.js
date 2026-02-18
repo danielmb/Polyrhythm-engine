@@ -198,6 +198,24 @@ const PendulumScene = {
         p.pop();
       }
     }
+
+    // ── Chord Change Flash ──
+    const ccGlow = options.chordChangeGlow || 0;
+    if (ccGlow > 0.01) {
+      p.push();
+      p.colorMode(p.HSB, 360, 100, 100, 100);
+      // Horizontal light wave expanding from center line
+      const waveW = w * (1 - ccGlow) * 0.5;
+      p.noStroke();
+      p.fill(220, 20, 100, ccGlow * 25);
+      p.rectMode(p.CENTER);
+      p.rect(cx, h / 2, waveW, h, 0);
+      // Bright line at center
+      p.stroke(260, 20, 100, ccGlow * 50);
+      p.strokeWeight(1.5 + ccGlow * 2);
+      p.line(cx, marginY - 20, cx, h - marginY + 20);
+      p.pop();
+    }
   },
 
   teardown() {
