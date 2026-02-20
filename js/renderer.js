@@ -33,9 +33,22 @@ class Renderer {
    * Draw the current scene. Called every frame from p5's draw().
    */
   draw(p, voices, w, h, options) {
-    // Clear canvas and draw space background behind the scene
-    p.background(10, 10, 15);
-    SpaceBackground.draw(p, w, h);
+    // Clear canvas — use background opacity from visual settings
+    const vis = options?.vis || {};
+    const bgAlpha = vis.bgOpacity != null ? vis.bgOpacity : 1.0;
+    if (bgAlpha >= 1.0) {
+      p.background(10, 10, 15);
+    } else {
+      // Semi-transparent clear for motion blur / trail effect
+      p.noStroke();
+      p.fill(10, 10, 15, Math.floor(bgAlpha * 255));
+      p.rect(0, 0, w, h);
+    }
+
+    // Draw space background (respects star visibility)
+    if (vis.showStars !== false) {
+      SpaceBackground.draw(p, w, h);
+    }
 
     if (this.currentScene && this.currentScene.draw) {
       this.currentScene.draw(p, voices, w, h, options);

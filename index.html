@@ -241,6 +241,10 @@
             <label>Orbit Shape</label>
             <select id="adv-spatial-pattern"></select>
           </div>
+          <div class="control-group">
+            <label>Orbit Path</label>
+            <select id="adv-orbit-path"></select>
+          </div>
           <div
             class="control-group"
             style="flex-direction: row; align-items: center; gap: 0.5rem"
@@ -255,6 +259,255 @@
               for="adv-connect-neighbors"
               style="margin: 0; cursor: pointer; font-size: 0.85rem"
               >Connect neighbors</label
+            >
+          </div>
+        </div>
+
+        <div class="adv-section">
+          <h3>Visuals</h3>
+          <div class="control-group">
+            <label>Scene Theme</label>
+            <select id="adv-scene-theme">
+              <option value="default">Default</option>
+              <option value="solar">Solar System ☀️</option>
+            </select>
+          </div>
+          <div class="control-group">
+            <label>Note Style</label>
+            <select id="adv-note-style">
+              <option value="glow">Glow (Default)</option>
+              <option value="minimal">Minimal</option>
+              <option value="neon">Neon</option>
+              <option value="solid">Solid</option>
+              <option value="ring">Ring</option>
+              <option value="dot">Dot</option>
+              <option value="ghost">Ghost</option>
+            </select>
+          </div>
+          <div class="control-group">
+            <label>Note Size: <span id="adv-note-size-val">100</span>%</label>
+            <input
+              type="range"
+              id="adv-note-size"
+              min="20"
+              max="300"
+              value="100"
+              step="5"
+            />
+          </div>
+          <div class="control-group">
+            <label
+              >Glow Intensity:
+              <span id="adv-glow-intensity-val">100</span>%</label
+            >
+            <input
+              type="range"
+              id="adv-glow-intensity"
+              min="0"
+              max="300"
+              value="100"
+              step="5"
+            />
+          </div>
+          <div class="control-group">
+            <label
+              >Flash Intensity:
+              <span id="adv-flash-intensity-val">100</span>%</label
+            >
+            <input
+              type="range"
+              id="adv-flash-intensity"
+              min="0"
+              max="300"
+              value="100"
+              step="5"
+            />
+          </div>
+          <div class="control-group">
+            <label
+              >Trail Length: <span id="adv-trail-length-val">100</span>%</label
+            >
+            <input
+              type="range"
+              id="adv-trail-length"
+              min="0"
+              max="300"
+              value="100"
+              step="5"
+            />
+          </div>
+          <div class="control-group">
+            <label
+              >Trail Opacity:
+              <span id="adv-trail-opacity-val">100</span>%</label
+            >
+            <input
+              type="range"
+              id="adv-trail-opacity"
+              min="0"
+              max="200"
+              value="100"
+              step="5"
+            />
+          </div>
+          <div class="control-group">
+            <label
+              >Line Opacity: <span id="adv-line-opacity-val">100</span>%</label
+            >
+            <input
+              type="range"
+              id="adv-line-opacity"
+              min="0"
+              max="300"
+              value="100"
+              step="5"
+            />
+          </div>
+          <div class="control-group">
+            <label
+              >Line Thickness:
+              <span id="adv-line-thickness-val">100</span>%</label
+            >
+            <input
+              type="range"
+              id="adv-line-thickness"
+              min="10"
+              max="500"
+              value="100"
+              step="10"
+            />
+          </div>
+          <div class="control-group">
+            <label
+              >Orbit Path Opacity:
+              <span id="adv-path-opacity-val">100</span>%</label
+            >
+            <input
+              type="range"
+              id="adv-path-opacity"
+              min="0"
+              max="300"
+              value="100"
+              step="5"
+            />
+          </div>
+          <div class="control-group">
+            <label
+              >Color Saturation: <span id="adv-color-sat-val">100</span>%</label
+            >
+            <input
+              type="range"
+              id="adv-color-sat"
+              min="0"
+              max="200"
+              value="100"
+              step="5"
+            />
+          </div>
+          <div class="control-group">
+            <label
+              >Color Brightness: <span id="adv-color-bri-val">100</span>%</label
+            >
+            <input
+              type="range"
+              id="adv-color-bri"
+              min="20"
+              max="200"
+              value="100"
+              step="5"
+            />
+          </div>
+          <div class="control-group">
+            <label
+              >Background Opacity:
+              <span id="adv-bg-opacity-val">100</span>%</label
+            >
+            <input
+              type="range"
+              id="adv-bg-opacity"
+              min="0"
+              max="100"
+              value="100"
+              step="5"
+            />
+          </div>
+          <div
+            class="control-group"
+            style="flex-direction: row; align-items: center; gap: 0.5rem"
+          >
+            <input
+              type="checkbox"
+              id="adv-monochrome"
+              style="width: auto; accent-color: #7c7aff"
+            />
+            <label
+              for="adv-monochrome"
+              style="margin: 0; cursor: pointer; font-size: 0.85rem"
+              >Monochrome</label
+            >
+          </div>
+          <div
+            class="control-group"
+            style="flex-direction: row; align-items: center; gap: 0.5rem"
+          >
+            <input
+              type="checkbox"
+              id="adv-show-paths"
+              style="width: auto; accent-color: #7c7aff"
+              checked
+            />
+            <label
+              for="adv-show-paths"
+              style="margin: 0; cursor: pointer; font-size: 0.85rem"
+              >Show orbit paths</label
+            >
+          </div>
+          <div
+            class="control-group"
+            style="flex-direction: row; align-items: center; gap: 0.5rem"
+          >
+            <input
+              type="checkbox"
+              id="adv-show-trails"
+              style="width: auto; accent-color: #7c7aff"
+              checked
+            />
+            <label
+              for="adv-show-trails"
+              style="margin: 0; cursor: pointer; font-size: 0.85rem"
+              >Show trails</label
+            >
+          </div>
+          <div
+            class="control-group"
+            style="flex-direction: row; align-items: center; gap: 0.5rem"
+          >
+            <input
+              type="checkbox"
+              id="adv-show-triggers"
+              style="width: auto; accent-color: #7c7aff"
+              checked
+            />
+            <label
+              for="adv-show-triggers"
+              style="margin: 0; cursor: pointer; font-size: 0.85rem"
+              >Show trigger effects</label
+            >
+          </div>
+          <div
+            class="control-group"
+            style="flex-direction: row; align-items: center; gap: 0.5rem"
+          >
+            <input
+              type="checkbox"
+              id="adv-show-stars"
+              style="width: auto; accent-color: #7c7aff"
+              checked
+            />
+            <label
+              for="adv-show-stars"
+              style="margin: 0; cursor: pointer; font-size: 0.85rem"
+              >Show stars</label
             >
           </div>
         </div>

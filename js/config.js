@@ -538,6 +538,133 @@ const Config = (() => {
           y: Math.random() * 2 - 1,
         })),
     },
+    grid: {
+      name: 'Grid',
+      fn: (count) => {
+        const cols = Math.ceil(Math.sqrt(count));
+        const rows = Math.ceil(count / cols);
+        return Array.from({ length: count }, (_, i) => {
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          return {
+            x: cols > 1 ? (col / (cols - 1)) * 2 - 1 : 0,
+            y: rows > 1 ? (row / (rows - 1)) * 2 - 1 : 0,
+          };
+        });
+      },
+    },
+    heart: {
+      name: 'Heart',
+      fn: (count) =>
+        Array.from({ length: count }, (_, i) => {
+          const t = (i / count) * Math.PI * 2;
+          // Parametric heart curve
+          const x = 16 * Math.pow(Math.sin(t), 3);
+          const y = -(
+            13 * Math.cos(t) -
+            5 * Math.cos(2 * t) -
+            2 * Math.cos(3 * t) -
+            Math.cos(4 * t)
+          );
+          return { x: x / 17, y: y / 17 };
+        }),
+    },
+    star: {
+      name: 'Star',
+      fn: (count) =>
+        Array.from({ length: count }, (_, i) => {
+          const t = i / Math.max(count - 1, 1);
+          const angle = t * Math.PI * 2;
+          const r = i % 2 === 0 ? 1.0 : 0.4; // alternate inner/outer points
+          return { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
+        }),
+    },
+    figure8: {
+      name: 'Figure-8',
+      fn: (count) =>
+        Array.from({ length: count }, (_, i) => {
+          const t = (i / count) * Math.PI * 2;
+          // Lemniscate of Bernoulli
+          const denom = 1 + Math.sin(t) * Math.sin(t);
+          return {
+            x: Math.cos(t) / denom,
+            y: (Math.sin(t) * Math.cos(t)) / denom,
+          };
+        }),
+    },
+    rings: {
+      name: 'Concentric Rings',
+      fn: (count) => {
+        const ringCount = Math.max(2, Math.ceil(count / 6));
+        return Array.from({ length: count }, (_, i) => {
+          const ring = Math.floor(
+            i / Math.max(1, Math.ceil(count / ringCount)),
+          );
+          const ringT = ring / Math.max(ringCount - 1, 1);
+          const r = 0.3 + ringT * 0.7;
+          const voicesInRing = Math.ceil(count / ringCount);
+          const idxInRing = i % voicesInRing;
+          const angle = (idxInRing / voicesInRing) * Math.PI * 2;
+          return { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
+        });
+      },
+    },
+    dna: {
+      name: 'DNA Helix',
+      fn: (count) =>
+        Array.from({ length: count }, (_, i) => {
+          const t = i / Math.max(count - 1, 1);
+          const angle = t * Math.PI * 4; // two full turns
+          const strand = i % 2 === 0 ? 1 : -1;
+          return {
+            x: Math.cos(angle) * 0.6 * strand,
+            y: t * 2 - 1,
+          };
+        }),
+    },
+    flower: {
+      name: 'Flower',
+      fn: (count) =>
+        Array.from({ length: count }, (_, i) => {
+          const t = (i / count) * Math.PI * 2;
+          const r = Math.cos(3 * t) * 0.6 + 0.4; // 3-petal rose + offset
+          return { x: Math.cos(t) * r, y: Math.sin(t) * r };
+        }),
+    },
+    galaxy: {
+      name: 'Galaxy',
+      fn: (count) => {
+        const arms = 3;
+        return Array.from({ length: count }, (_, i) => {
+          const arm = i % arms;
+          const t =
+            Math.floor(i / arms) / Math.max(Math.ceil(count / arms) - 1, 1);
+          const baseAngle = (arm / arms) * Math.PI * 2;
+          const spiralAngle = baseAngle + t * Math.PI * 2.5;
+          const r = 0.1 + t * 0.9;
+          // Add slight jitter for organic feel
+          const jitter = Math.sin(i * 7.13) * 0.08;
+          return {
+            x: Math.cos(spiralAngle) * r + jitter,
+            y: Math.sin(spiralAngle) * r + jitter,
+          };
+        });
+      },
+    },
+    cross: {
+      name: 'Cross',
+      fn: (count) =>
+        Array.from({ length: count }, (_, i) => {
+          const t = i / Math.max(count - 1, 1);
+          if (i % 2 === 0) {
+            // Horizontal arm
+            return { x: t * 2 - 1, y: 0 };
+          } else {
+            // Vertical arm
+            return { x: 0, y: t * 2 - 1 };
+          }
+        }),
+    },
   };
 
   /**
@@ -548,6 +675,176 @@ const Config = (() => {
     const pattern = SPATIAL_PATTERNS[patternKey];
     if (!pattern) return SPATIAL_PATTERNS.none.fn(count);
     return pattern.fn(count);
+  }
+
+  // ── Orbit Path Shapes ──
+  // Each defines a parametric curve: given phase 0..1, return {x, y} in -1..1.
+  // These control the SHAPE of each voice's orbit, not where the center is.
+  const ORBIT_SHAPES = {
+    circle: {
+      name: 'Circle',
+      fn: (phase) => {
+        const a = phase * Math.PI * 2 - Math.PI / 2;
+        return { x: Math.cos(a), y: Math.sin(a) };
+      },
+    },
+    ellipse: {
+      name: 'Ellipse',
+      fn: (phase) => {
+        const a = phase * Math.PI * 2 - Math.PI / 2;
+        return { x: Math.cos(a), y: Math.sin(a) * 0.5 };
+      },
+    },
+    figure8: {
+      name: 'Figure-8',
+      fn: (phase) => {
+        const t = phase * Math.PI * 2;
+        // Lissajous 1:2
+        return { x: Math.sin(t), y: Math.sin(2 * t) * 0.5 };
+      },
+    },
+    lissajous: {
+      name: 'Lissajous (2:3)',
+      fn: (phase) => {
+        const t = phase * Math.PI * 2;
+        return { x: Math.sin(2 * t), y: Math.sin(3 * t) };
+      },
+    },
+    rose: {
+      name: 'Rose (3 petals)',
+      fn: (phase) => {
+        const t = phase * Math.PI * 2;
+        const r = Math.cos(3 * t);
+        return { x: r * Math.cos(t), y: r * Math.sin(t) };
+      },
+    },
+    rose4: {
+      name: 'Rose (4 petals)',
+      fn: (phase) => {
+        const t = phase * Math.PI * 2;
+        const r = Math.cos(2 * t);
+        return { x: r * Math.cos(t), y: r * Math.sin(t) };
+      },
+    },
+    heart: {
+      name: 'Heart',
+      fn: (phase) => {
+        const t = phase * Math.PI * 2;
+        const x = 16 * Math.pow(Math.sin(t), 3);
+        const y = -(
+          13 * Math.cos(t) -
+          5 * Math.cos(2 * t) -
+          2 * Math.cos(3 * t) -
+          Math.cos(4 * t)
+        );
+        return { x: x / 17, y: y / 17 };
+      },
+    },
+    infinity: {
+      name: 'Infinity (∞)',
+      fn: (phase) => {
+        const t = phase * Math.PI * 2;
+        const denom = 1 + Math.sin(t) * Math.sin(t);
+        return {
+          x: Math.cos(t) / denom,
+          y: (Math.sin(t) * Math.cos(t)) / denom,
+        };
+      },
+    },
+    star5: {
+      name: 'Star (5 point)',
+      fn: (phase) => {
+        // Star polygon — alternating between inner and outer radius
+        const t = phase * Math.PI * 2;
+        const points = 5;
+        const sector = (Math.PI * 2) / points;
+        const halfSector = sector / 2;
+        const idx = t / halfSector;
+        const frac = idx % 1;
+        const isOuter = Math.floor(idx) % 2 === 0;
+        const angle1 = Math.floor(idx) * halfSector;
+        const angle2 = angle1 + halfSector;
+        const r1 = isOuter ? 1.0 : 0.4;
+        const r2 = isOuter ? 0.4 : 1.0;
+        const x =
+          r1 * Math.cos(angle1) * (1 - frac) + r2 * Math.cos(angle2) * frac;
+        const y =
+          r1 * Math.sin(angle1) * (1 - frac) + r2 * Math.sin(angle2) * frac;
+        return { x, y };
+      },
+    },
+    square: {
+      name: 'Square',
+      fn: (phase) => {
+        // Superellipse with high exponent ≈ square
+        const t = phase * Math.PI * 2;
+        const n = 4; // squareness exponent
+        const cosT = Math.cos(t);
+        const sinT = Math.sin(t);
+        const x = Math.sign(cosT) * Math.pow(Math.abs(cosT), 2 / n);
+        const y = Math.sign(sinT) * Math.pow(Math.abs(sinT), 2 / n);
+        return { x, y };
+      },
+    },
+    triangle: {
+      name: 'Triangle',
+      fn: (phase) => {
+        // Equilateral triangle path
+        const t = phase * 3; // 3 sides
+        const side = Math.floor(t) % 3;
+        const frac = t - Math.floor(t);
+        const verts = [
+          { x: 0, y: -1 },
+          { x: Math.sin((Math.PI * 2) / 3), y: Math.cos((Math.PI * 2) / 3) },
+          { x: -Math.sin((Math.PI * 2) / 3), y: Math.cos((Math.PI * 2) / 3) },
+        ];
+        const a = verts[side];
+        const b = verts[(side + 1) % 3];
+        return {
+          x: a.x + (b.x - a.x) * frac,
+          y: a.y + (b.y - a.y) * frac,
+        };
+      },
+    },
+    spirograph: {
+      name: 'Spirograph',
+      fn: (phase) => {
+        const t = phase * Math.PI * 2;
+        const R = 1,
+          r = 0.35,
+          d = 0.6;
+        const x = (R - r) * Math.cos(t) + d * Math.cos(((R - r) / r) * t);
+        const y = (R - r) * Math.sin(t) - d * Math.sin(((R - r) / r) * t);
+        const scale = 1.5; // normalize to ~-1..1
+        return { x: x / scale, y: y / scale };
+      },
+    },
+    butterfly: {
+      name: 'Butterfly',
+      fn: (phase) => {
+        const t = phase * Math.PI * 2;
+        const exp = Math.exp(Math.cos(t));
+        const cos2 = Math.cos(2 * t);
+        const sin5 = Math.pow(Math.sin(t / 12), 5);
+        const r = exp - 2 * cos2 + sin5;
+        const x = Math.sin(t) * r;
+        const y = Math.cos(t) * r;
+        const scale = 4; // normalize
+        return { x: x / scale, y: -y / scale };
+      },
+    },
+  };
+
+  /**
+   * Get orbit shape position for a given phase.
+   * @param {string} shapeKey - key of ORBIT_SHAPES
+   * @param {number} phase - 0..1
+   * @returns {{x: number, y: number}} position in -1..1 range
+   */
+  function getOrbitShapePosition(shapeKey, phase) {
+    const shape = ORBIT_SHAPES[shapeKey];
+    if (!shape) return ORBIT_SHAPES.circle.fn(phase);
+    return shape.fn(phase);
   }
 
   // ── Presets ──
@@ -1015,6 +1312,7 @@ const Config = (() => {
     CHORD_SUFFIXES,
     PHASE_PATTERNS,
     SPATIAL_PATTERNS,
+    ORBIT_SHAPES,
     PRESETS,
     noteNameToMidi,
     midiToFrequency,
@@ -1026,6 +1324,7 @@ const Config = (() => {
     generateColors,
     generatePhaseOffsets,
     generateSpatialOffsets,
+    getOrbitShapePosition,
     buildVoiceConfig,
     createSmoothRatios,
     parseManualVoices,

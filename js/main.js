@@ -151,6 +151,10 @@
     if (spatDropdown) {
       spatDropdown.value = cfg.preset.spatialPattern || 'none';
     }
+    const orbitPathDropdown = document.getElementById('adv-orbit-path');
+    if (orbitPathDropdown) {
+      orbitPathDropdown.value = cfg.preset.orbitPath || 'circle';
+    }
     const ambOctSlider = document.getElementById('adv-ambient-octave');
     const ambOctVal = document.getElementById('adv-ambient-octave-val');
     if (ambOctSlider) {
@@ -220,7 +224,7 @@
     // Sync Connect Neighbors
     const connectCheckbox = document.getElementById('adv-connect-neighbors');
     if (connectCheckbox) {
-      connectCheckbox.checked = !!cfg.preset.connectNeighbors;
+      connectCheckbox.checked = cfg.preset.connectNeighbors !== false;
     }
 
     return cfg;
@@ -333,6 +337,8 @@
             elapsedBeats: engine.elapsedBeats,
             connectNeighbors: preset ? preset.connectNeighbors !== false : true,
             chordChangeGlow: chordChangeGlow,
+            orbitPath: preset ? preset.orbitPath || 'circle' : 'circle',
+            vis: visualSettings,
           };
           renderer.draw(p, engine.voices, p.width, p.height, options);
         }
@@ -614,6 +620,16 @@ Hit:     ${triggered || '-'}`;
     advSpatialPattern.appendChild(opt);
   });
 
+  // Populate Orbit Path Dropdown
+  const advOrbitPath = document.getElementById('adv-orbit-path');
+  Object.entries(Config.ORBIT_SHAPES).forEach(([key, shape]) => {
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = shape.name;
+    if (key === 'circle') opt.selected = true;
+    advOrbitPath.appendChild(opt);
+  });
+
   // Chord-tones-only checkbox toggles scale dropdown and updates preset
   const advChordTonesOnly = document.getElementById('adv-chord-tones-only');
   advChordTonesOnly.addEventListener('change', () => {
@@ -637,6 +653,103 @@ Hit:     ${triggered || '-'}`;
       }
     }
   });
+
+  // Orbit path dropdown updates the preset live
+  advOrbitPath.addEventListener('change', () => {
+    const preset = Config.PRESETS[currentPresetKey];
+    if (preset) preset.orbitPath = advOrbitPath.value;
+  });
+
+  // ── Visual Settings (live-updating) ──
+  const visualSettings = {
+    noteStyle: 'glow',
+    noteSize: 1.0,
+    glowIntensity: 1.0,
+    flashIntensity: 1.0,
+    trailLength: 1.0,
+    trailOpacity: 1.0,
+    lineOpacity: 1.0,
+    lineThickness: 1.0,
+    pathOpacity: 1.0,
+    colorSaturation: 1.0,
+    colorBrightness: 1.0,
+    bgOpacity: 1.0,
+    monochrome: false,
+    showPaths: true,
+    showTrails: true,
+    showTriggers: true,
+    showStars: true,
+    sceneTheme: 'default',
+  };
+
+  // Helper: wire a range slider to visualSettings
+  function wireVisualSlider(id, valId, key, divisor = 100) {
+    const slider = document.getElementById(id);
+    const valSpan = document.getElementById(valId);
+    if (!slider) return;
+    slider.addEventListener('input', () => {
+      const v = parseFloat(slider.value);
+      visualSettings[key] = v / divisor;
+      if (valSpan) valSpan.textContent = Math.round(v);
+    });
+  }
+  wireVisualSlider('adv-note-size', 'adv-note-size-val', 'noteSize');
+  wireVisualSlider(
+    'adv-glow-intensity',
+    'adv-glow-intensity-val',
+    'glowIntensity',
+  );
+  wireVisualSlider(
+    'adv-flash-intensity',
+    'adv-flash-intensity-val',
+    'flashIntensity',
+  );
+  wireVisualSlider('adv-trail-length', 'adv-trail-length-val', 'trailLength');
+  wireVisualSlider(
+    'adv-trail-opacity',
+    'adv-trail-opacity-val',
+    'trailOpacity',
+  );
+  wireVisualSlider('adv-line-opacity', 'adv-line-opacity-val', 'lineOpacity');
+  wireVisualSlider(
+    'adv-line-thickness',
+    'adv-line-thickness-val',
+    'lineThickness',
+  );
+  wireVisualSlider('adv-path-opacity', 'adv-path-opacity-val', 'pathOpacity');
+  wireVisualSlider('adv-color-sat', 'adv-color-sat-val', 'colorSaturation');
+  wireVisualSlider('adv-color-bri', 'adv-color-bri-val', 'colorBrightness');
+  wireVisualSlider('adv-bg-opacity', 'adv-bg-opacity-val', 'bgOpacity');
+
+  // Note style dropdown
+  const advNoteStyle = document.getElementById('adv-note-style');
+  if (advNoteStyle) {
+    advNoteStyle.addEventListener('change', () => {
+      visualSettings.noteStyle = advNoteStyle.value;
+    });
+  }
+
+  // Scene theme dropdown
+  const advSceneTheme = document.getElementById('adv-scene-theme');
+  if (advSceneTheme) {
+    advSceneTheme.addEventListener('change', () => {
+      visualSettings.sceneTheme = advSceneTheme.value;
+    });
+  }
+
+  // Checkboxes
+  function wireVisualCheckbox(id, key) {
+    const cb = document.getElementById(id);
+    if (!cb) return;
+    cb.addEventListener('change', () => {
+      visualSettings[key] = cb.checked;
+    });
+  }
+  wireVisualCheckbox('adv-monochrome', 'monochrome');
+  wireVisualCheckbox('adv-show-paths', 'showPaths');
+  wireVisualCheckbox('adv-show-trails', 'showTrails');
+  wireVisualCheckbox('adv-show-triggers', 'showTriggers');
+  wireVisualCheckbox('adv-show-stars', 'showStars');
 
   // Connect-neighbors checkbox updates the preset live
   const advConnectNeighbors = document.getElementById('adv-connect-neighbors');
@@ -956,6 +1069,7 @@ Hit:     ${triggered || '-'}`;
       ambientOctave: parseInt(advAmbientOctave.value) || 0,
       visualPhasePattern: phasePatternKey,
       spatialPattern: spatialPatternKey,
+      orbitPath: advOrbitPath.value || 'circle',
       easing,
       bpm: engine.bpm,
     };
