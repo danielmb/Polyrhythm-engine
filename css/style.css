@@ -499,6 +499,9 @@ input[type='range']::-moz-range-thumb {
   transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
   z-index: 300;
   padding: 0 1.5rem 1.5rem;
+  /* The MIDI section makes this tall enough to overrun short viewports */
+  max-height: 85vh;
+  overflow-y: auto;
 }
 
 .mixer-drawer.open {
@@ -559,6 +562,72 @@ input[type='range']::-moz-range-thumb {
   border-radius: 6px;
   color: #fff;
   font-size: 0.85rem;
+}
+
+/* ── Mixer sub-sections (MIDI) ─────────────────────── */
+.mixer-section {
+  margin-top: 1.2rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mixer-subhead {
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.9rem;
+}
+
+.mixer-subhead h4 {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(150, 120, 255, 0.8);
+  margin: 0;
+}
+
+.mixer-subhead small {
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.mixer-subhead small.warn {
+  color: rgba(255, 190, 90, 0.9);
+}
+
+/* Device names run long — give that one column room to breathe */
+.mixer-group-wide {
+  flex: 2;
+  max-width: 260px;
+}
+
+.mixer-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem 1.5rem;
+  margin-top: 1rem;
+}
+
+.mixer-check {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+}
+
+.mixer-check input {
+  width: auto;
+  margin: 0;
+  accent-color: #7c7aff;
+}
+
+.mixer-check.disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 /* ── Main Progress Bar ────────────────────────────── */

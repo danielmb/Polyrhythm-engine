@@ -708,6 +708,107 @@
           />
         </div>
       </div>
+
+      <div class="mixer-section">
+        <div class="mixer-subhead">
+          <h4>MIDI Output</h4>
+          <small id="midi-status">Enable to scan for outputs.</small>
+        </div>
+        <div class="mixer-controls">
+          <div class="mixer-group mixer-group-wide">
+            <label>Device</label>
+            <select id="midi-device">
+              <option value="">— none —</option>
+            </select>
+          </div>
+          <div class="mixer-group">
+            <label>Channel</label>
+            <div class="row">
+              <select id="midi-channel-mode" class="input-sm">
+                <option value="single">Single</option>
+                <option value="spread">Per voice</option>
+              </select>
+              <input
+                type="number"
+                id="midi-channel"
+                min="1"
+                max="16"
+                step="1"
+                value="1"
+                class="input-sm"
+                style="max-width: 60px"
+              />
+            </div>
+          </div>
+          <div class="mixer-group">
+            <label>Velocity: <span id="midi-velocity-val">100</span></label>
+            <input
+              type="range"
+              id="midi-velocity"
+              min="1"
+              max="127"
+              value="100"
+              step="1"
+            />
+          </div>
+          <div class="mixer-group">
+            <label>Note Length: <span id="midi-gate-val">200</span> ms</label>
+            <input
+              type="range"
+              id="midi-gate"
+              min="10"
+              max="2000"
+              value="200"
+              step="10"
+            />
+          </div>
+          <div class="mixer-group">
+            <label>Transpose: <span id="midi-transpose-val">0</span></label>
+            <input
+              type="range"
+              id="midi-transpose"
+              min="-24"
+              max="24"
+              value="0"
+              step="1"
+            />
+          </div>
+          <div class="mixer-group">
+            <label>Pad Channel</label>
+            <input
+              type="number"
+              id="midi-pad-channel"
+              min="1"
+              max="16"
+              step="1"
+              value="2"
+              class="input-sm"
+            />
+          </div>
+        </div>
+        <div class="mixer-toggles">
+          <label class="mixer-check">
+            <input type="checkbox" id="midi-enabled" />
+            Send notes to MIDI
+          </label>
+          <label class="mixer-check">
+            <input type="checkbox" id="midi-sustain" />
+            Sustain pedal
+          </label>
+          <label class="mixer-check" id="midi-repedal-wrap">
+            <input type="checkbox" id="midi-repedal" checked />
+            Re-pedal on chord change
+          </label>
+          <label class="mixer-check">
+            <input type="checkbox" id="midi-pad" />
+            Send chord pad
+          </label>
+          <label class="mixer-check">
+            <input type="checkbox" id="midi-mute-internal" />
+            Mute internal synth
+          </label>
+        </div>
+      </div>
     </div>
 
     <!-- Info display -->
@@ -730,6 +831,7 @@
     <script src="js/timing-engine.js"></script>
     <script src="js/audio-layer.js"></script>
     <script src="js/ambient-layer.js"></script>
+    <script src="js/midi-layer.js"></script>
     <script src="js/space-background.js"></script>
     <script src="js/scenes/pendulum.js"></script>
     <script src="js/scenes/bouncing-boxes.js"></script>

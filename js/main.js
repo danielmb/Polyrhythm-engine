@@ -9,6 +9,7 @@
   const firstPresetKey = Object.keys(Config.PRESETS)[0];
   let engine = null;
   let audioLayer = null;
+  const midiLayer = new MidiLayer();
   let renderer = null;
   let currentPresetKey = firstPresetKey;
   let currentSceneKey = 'circular-orbits';
@@ -18,6 +19,27 @@
   let chordChangeGlow = 0;
   let chordChangeEffect = true;
   let started = false;
+  let internalSynthMuted = false;
+
+  /**
+   * Apply the volume slider to the internal synth layers, honouring the
+   * "mute internal synth" switch used when routing to external MIDI gear.
+   */
+  function applyVolume() {
+    const vol = internalSynthMuted ? 0 : parseFloat(volumeSlider.value);
+    if (audioLayer) audioLayer.setVolume(vol);
+    if (ambientLayer) ambientLayer.setVolume(vol);
+  }
+
+  /**
+   * Play a chord on every pad-capable layer (internal ambient pad + MIDI).
+   * @param {Array<{midi: number}>} padNotes
+   * @param {number} transposeSemitones
+   */
+  function playPad(padNotes, transposeSemitones) {
+    if (ambientLayer) ambientLayer.playChord(padNotes, transposeSemitones);
+    midiLayer.sendChord(padNotes, transposeSemitones);
+  }
 
   /**
    * Re-tune voice notes based on a parsed chord and the current mode.
@@ -244,11 +266,10 @@
     // Build audio layer
     audioLayer = new AudioLayer();
     await audioLayer.init(engine.voices);
-    audioLayer.setVolume(parseInt(volumeSlider.value));
 
     // Build ambient layer
     ambientLayer = new AmbientLayer();
-    ambientLayer.setVolume(parseInt(volumeSlider.value));
+    applyVolume();
 
     // Trigger initial chord if exists
     const preset = Config.PRESETS[currentPresetKey];
@@ -258,7 +279,7 @@
         parsed.rootMidi,
         parsed.chordTypeKey,
       );
-      ambientLayer.playChord(padNotes, (preset.ambientOctave ?? 0) * 12);
+      playPad(padNotes, (preset.ambientOctave ?? 0) * 12);
 
       // Re-tune voices
       retuneVoices(parsed, preset, engine.voices.length);
@@ -298,17 +319,17 @@
             // Re-tune all voices
             retuneVoices(parsed, preset, engine.voices.length);
 
+            // Clear the sustain pedal so the outgoing chord stops ringing.
+            // Only here — not in playPad, which also fires on resume and on
+            // ambient-octave drags, where re-pedalling would be spurious.
+            midiLayer.repedal();
+
             // Trigger Ambient Pad with the chord
-            if (ambientLayer) {
-              const padNotes = Config.getChordNotes(
-                parsed.rootMidi,
-                parsed.chordTypeKey,
-              );
-              ambientLayer.playChord(
-                padNotes,
-                (preset.ambientOctave ?? 0) * 12,
-              );
-            }
+            const padNotes = Config.getChordNotes(
+              parsed.rootMidi,
+              parsed.chordTypeKey,
+            );
+            playPad(padNotes, (preset.ambientOctave ?? 0) * 12);
 
             // Update UI (Show chord symbol)
             infoPreset.textContent = `${preset.name} (${parsed.displayName})`;
@@ -328,6 +349,9 @@
 
         // Update audio
         audioLayer.update(engine.voices);
+
+        // Mirror triggers to the MIDI output
+        midiLayer.update(engine.voices);
 
         // Draw scene
         if (renderer) {
@@ -478,8 +502,10 @@ Hit:     ${triggered || '-'}`;
 
     if (audioLayer) {
       await audioLayer.reinit(engine.voices);
-      audioLayer.setVolume(parseInt(volumeSlider.value));
     }
+
+    // New voice set — release anything the old one left sounding externally
+    midiLayer.allNotesOff();
 
     // Dispose old ambient layer and create a fresh one
     if (ambientLayer) {
@@ -487,7 +513,7 @@ Hit:     ${triggered || '-'}`;
       ambientLayer = null;
     }
     ambientLayer = new AmbientLayer();
-    ambientLayer.setVolume(parseInt(volumeSlider.value));
+    applyVolume();
 
     // Trigger initial ambient chord for new preset
     const preset = Config.PRESETS[key];
@@ -497,7 +523,7 @@ Hit:     ${triggered || '-'}`;
         parsed.rootMidi,
         parsed.chordTypeKey,
       );
-      ambientLayer.playChord(padNotes, (preset.ambientOctave ?? 0) * 12);
+      playPad(padNotes, (preset.ambientOctave ?? 0) * 12);
 
       // Re-tune voices
       retuneVoices(parsed, preset, engine.voices.length);
@@ -556,8 +582,7 @@ Hit:     ${triggered || '-'}`;
   volumeSlider.addEventListener('input', (e) => {
     const vol = parseFloat(e.target.value);
     volumeValue.textContent = vol;
-    if (audioLayer) audioLayer.setVolume(vol);
-    if (ambientLayer) ambientLayer.setVolume(vol);
+    applyVolume();
   });
 
   // ── Pause / Resume ──
@@ -565,6 +590,9 @@ Hit:     ${triggered || '-'}`;
     if (!engine) return;
     engine.toggle();
     pauseBtn.textContent = engine.isRunning ? 'Pause' : 'Resume';
+
+    // Don't leave external gear droning while paused
+    if (!engine.isRunning) midiLayer.allNotesOff();
 
     // Manage ambient
     if (ambientLayer) {
@@ -579,7 +607,7 @@ Hit:     ${triggered || '-'}`;
             parsed.rootMidi,
             parsed.chordTypeKey,
           );
-          ambientLayer.playChord(padNotes, (preset.ambientOctave ?? 0) * 12);
+          playPad(padNotes, (preset.ambientOctave ?? 0) * 12);
         }
       }
     }
@@ -795,7 +823,7 @@ Hit:     ${triggered || '-'}`;
         parsed.rootMidi,
         parsed.chordTypeKey,
       );
-      ambientLayer.playChord(padNotes, oct * 12);
+      playPad(padNotes, oct * 12);
     }
   });
 
@@ -881,6 +909,206 @@ Hit:     ${triggered || '-'}`;
     if (audioLayer) audioLayer.setFilterFreq(freq);
     if (ambientLayer) ambientLayer.setFilterFreq(freq);
   });
+
+  // ── MIDI Output ──
+  const midiEnabled = document.getElementById('midi-enabled');
+  const midiDevice = document.getElementById('midi-device');
+  const midiStatus = document.getElementById('midi-status');
+  const midiChannelMode = document.getElementById('midi-channel-mode');
+  const midiChannel = document.getElementById('midi-channel');
+  const midiVelocity = document.getElementById('midi-velocity');
+  const midiVelocityVal = document.getElementById('midi-velocity-val');
+  const midiGate = document.getElementById('midi-gate');
+  const midiGateVal = document.getElementById('midi-gate-val');
+  const midiTranspose = document.getElementById('midi-transpose');
+  const midiTransposeVal = document.getElementById('midi-transpose-val');
+  const midiPad = document.getElementById('midi-pad');
+  const midiPadChannel = document.getElementById('midi-pad-channel');
+  const midiMuteInternal = document.getElementById('midi-mute-internal');
+  const midiSustain = document.getElementById('midi-sustain');
+  const midiRepedal = document.getElementById('midi-repedal');
+  const midiRepedalWrap = document.getElementById('midi-repedal-wrap');
+
+  /**
+   * True when voice notes land on the pad's channel.  Sharing a channel makes
+   * the pad unreleasable under a held pedal, so it is worth calling out.
+   */
+  function padChannelCollides() {
+    if (!midiLayer.sendPad || !engine) return false;
+    if (midiLayer.channelMode !== 'spread') {
+      return midiLayer.channel === midiLayer.padChannel;
+    }
+    for (let i = 0; i < engine.voices.length; i++) {
+      if (((midiLayer.channel - 1 + i) % 16) + 1 === midiLayer.padChannel) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Describe what the MIDI layer is currently doing. */
+  function updateMidiStatus() {
+    if (!midiLayer.supported) {
+      midiStatus.textContent = 'Web MIDI is not supported in this browser.';
+      return;
+    }
+    if (!midiLayer.initialized) {
+      midiStatus.textContent = 'Enable to scan for outputs.';
+      return;
+    }
+    const name = midiLayer.getOutputName();
+    if (!midiLayer.enabled) {
+      midiStatus.textContent = 'MIDI output off.';
+    } else if (!name) {
+      midiStatus.textContent = 'Select an output device.';
+    } else {
+      midiStatus.textContent = `Sending to ${name}.`;
+    }
+
+    const clash = padChannelCollides();
+    if (clash) {
+      midiStatus.textContent += ` Voice notes also land on pad channel ${midiLayer.padChannel} — give the pad a channel of its own.`;
+    }
+    midiStatus.classList.toggle('warn', clash);
+  }
+
+  /**
+   * Rebuild the device dropdown, keeping the current selection if that port
+   * is still connected.
+   * @param {Array<{id: string, name: string}>} [outputs]
+   */
+  function refreshMidiDevices(outputs) {
+    const ports = outputs || midiLayer.getOutputs();
+    const previous = midiDevice.value;
+
+    midiDevice.innerHTML = '';
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = ports.length ? '— none —' : '— no outputs found —';
+    midiDevice.appendChild(none);
+
+    ports.forEach((port) => {
+      const opt = document.createElement('option');
+      opt.value = port.id;
+      opt.textContent = port.name;
+      midiDevice.appendChild(opt);
+    });
+
+    const stillConnected = ports.some((p) => p.id === previous);
+    midiDevice.value = stillConnected ? previous : '';
+    midiLayer.setOutput(midiDevice.value || null);
+    updateMidiStatus();
+  }
+
+  /** Send the chord that is currently sounding to the MIDI pad channel. */
+  function sendCurrentChordToMidi() {
+    const preset = Config.PRESETS[currentPresetKey];
+    if (!preset?.chordProgression?.length) return;
+    const parsed = Config.parseChordSymbol(
+      preset.chordProgression[currentChordIndex],
+    );
+    const padNotes = Config.getChordNotes(parsed.rootMidi, parsed.chordTypeKey);
+    midiLayer.sendChord(padNotes, (preset.ambientOctave ?? 0) * 12);
+  }
+
+  midiLayer.onPortsChanged = (outputs) => refreshMidiDevices(outputs);
+
+  if (!midiLayer.supported) {
+    midiEnabled.disabled = true;
+    midiDevice.disabled = true;
+  }
+  midiRepedalWrap.classList.toggle('disabled', !midiSustain.checked);
+  updateMidiStatus();
+
+  midiEnabled.addEventListener('change', async () => {
+    if (midiEnabled.checked) {
+      midiStatus.textContent = 'Requesting MIDI access…';
+      const granted = await midiLayer.init();
+      if (!granted) {
+        midiEnabled.checked = false;
+        midiStatus.textContent = 'MIDI access was denied or unavailable.';
+        return;
+      }
+      refreshMidiDevices();
+
+      // With exactly one output, pick it so enabling is a single click
+      const ports = midiLayer.getOutputs();
+      if (!midiDevice.value && ports.length === 1) {
+        midiDevice.value = ports[0].id;
+        midiLayer.setOutput(ports[0].id);
+      }
+    }
+    midiLayer.setEnabled(midiEnabled.checked);
+    if (midiLayer.isSending && midiLayer.sendPad) sendCurrentChordToMidi();
+    updateMidiStatus();
+  });
+
+  midiDevice.addEventListener('change', () => {
+    midiLayer.setOutput(midiDevice.value || null);
+    if (midiLayer.isSending && midiLayer.sendPad) sendCurrentChordToMidi();
+    updateMidiStatus();
+  });
+
+  midiChannelMode.addEventListener('change', () => {
+    midiLayer.setChannelMode(midiChannelMode.value);
+    updateMidiStatus();
+  });
+
+  midiChannel.addEventListener('change', () => {
+    midiLayer.setChannel(parseInt(midiChannel.value) || 1);
+    midiChannel.value = midiLayer.channel;
+    updateMidiStatus();
+  });
+
+  midiVelocity.addEventListener('input', () => {
+    const val = parseInt(midiVelocity.value);
+    midiVelocityVal.textContent = val;
+    midiLayer.setVelocity(val);
+  });
+
+  midiGate.addEventListener('input', () => {
+    const val = parseInt(midiGate.value);
+    midiGateVal.textContent = val;
+    midiLayer.setGate(val);
+  });
+
+  midiTranspose.addEventListener('input', () => {
+    const val = parseInt(midiTranspose.value);
+    midiTransposeVal.textContent = val > 0 ? `+${val}` : val;
+    midiLayer.setTranspose(val);
+  });
+
+  midiPad.addEventListener('change', () => {
+    midiLayer.setSendPad(midiPad.checked);
+    // Start the pad on the chord already playing rather than the next one
+    if (midiPad.checked) sendCurrentChordToMidi();
+    updateMidiStatus();
+  });
+
+  midiPadChannel.addEventListener('change', () => {
+    midiLayer.setPadChannel(parseInt(midiPadChannel.value) || 2);
+    midiPadChannel.value = midiLayer.padChannel;
+    if (midiLayer.sendPad) sendCurrentChordToMidi();
+    updateMidiStatus();
+  });
+
+  midiSustain.addEventListener('change', () => {
+    midiLayer.setSustain(midiSustain.checked);
+    midiRepedalWrap.classList.toggle('disabled', !midiSustain.checked);
+  });
+
+  midiRepedal.addEventListener('change', () => {
+    midiLayer.setRepedalOnChord(midiRepedal.checked);
+  });
+
+  midiMuteInternal.addEventListener('change', () => {
+    internalSynthMuted = midiMuteInternal.checked;
+    applyVolume();
+  });
+
+  // Leave no stuck notes on external gear when the page goes away
+  window.addEventListener('pagehide', () => midiLayer.allNotesOff());
+  window.addEventListener('beforeunload', () => midiLayer.allNotesOff());
 
   // Reset baseline BPM when preset changes or BPM slider moves
   bpmSlider.addEventListener('input', () => {
@@ -1092,7 +1320,9 @@ Hit:     ${triggered || '-'}`;
 
     // Reinit Audio & Renderer
     await audioLayer.reinit(engine.voices);
-    audioLayer.setVolume(parseInt(volumeSlider.value));
+
+    // New voice set — release anything the old one left sounding externally
+    midiLayer.allNotesOff();
 
     if (renderer && renderer.p) {
       renderer.setScene(
@@ -1109,7 +1339,7 @@ Hit:     ${triggered || '-'}`;
       ambientLayer = null;
     }
     ambientLayer = new AmbientLayer();
-    ambientLayer.setVolume(parseInt(volumeSlider.value));
+    applyVolume();
 
     // Trigger initial ambient chord and re-tune voices
     if (chordProgression.length > 0) {
@@ -1118,10 +1348,7 @@ Hit:     ${triggered || '-'}`;
         parsed.rootMidi,
         parsed.chordTypeKey,
       );
-      ambientLayer.playChord(
-        padNotes,
-        (parseInt(advAmbientOctave.value) || 0) * 12,
-      );
+      playPad(padNotes, (parseInt(advAmbientOctave.value) || 0) * 12);
 
       // Re-tune voices
       retuneVoices(parsed, Config.PRESETS['custom'], engine.voices.length);
