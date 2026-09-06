@@ -6,6 +6,11 @@
 (function () {
   // ── State ──
 
+  // Saved presets are merged into Config.PRESETS up front so everything
+  // downstream (buildVoiceConfig, retuneVoices, the debug overlay …) treats
+  // them exactly like the built-in ones.
+  UserPresets.mergeIntoConfig(Config.PRESETS);
+
   const firstPresetKey = Object.keys(Config.PRESETS)[0];
   let engine = null;
   let audioLayer = null;
@@ -99,6 +104,7 @@
   const controlsToggle = document.getElementById('controls-toggle');
   const controlsPanel = document.getElementById('controls-panel');
   const presetSelect = document.getElementById('preset-select');
+  const presetDescription = document.getElementById('preset-description');
   const sceneSelect = document.getElementById('scene-select');
   const bpmSlider = document.getElementById('bpm-slider');
   const bpmNumber = document.getElementById('bpm-number');
@@ -110,14 +116,60 @@
   const infoPreset = document.getElementById('info-preset');
   const infoElapsed = document.getElementById('info-elapsed');
 
-  // ── Populate preset dropdown ──
-  Object.entries(Config.PRESETS).forEach(([key, preset]) => {
-    const opt = document.createElement('option');
-    opt.value = key;
-    opt.textContent = preset.name;
-    if (key === currentPresetKey) opt.selected = true;
-    presetSelect.appendChild(opt);
-  });
+  // ── Preset dropdown ──
+  /**
+   * Rebuild the dropdown, grouping presets by category in the order the
+   * categories are declared.  Called again whenever the saved-preset list
+   * changes, so it must be safe to run repeatedly.
+   */
+  function rebuildPresetDropdown() {
+    presetSelect.innerHTML = '';
+
+    const groups = new Map();
+    Object.entries(Config.PRESETS).forEach(([key, preset]) => {
+      const cat = Config.PRESET_CATEGORIES[preset.category]
+        ? preset.category
+        : 'custom';
+      if (!groups.has(cat)) groups.set(cat, []);
+      groups.get(cat).push([key, preset]);
+    });
+
+    Object.keys(Config.PRESET_CATEGORIES).forEach((cat) => {
+      const entries = groups.get(cat);
+      if (!entries || entries.length === 0) return;
+      const group = document.createElement('optgroup');
+      group.label = Config.PRESET_CATEGORIES[cat];
+      entries.forEach(([key, preset]) => {
+        const opt = document.createElement('option');
+        opt.value = key;
+        opt.textContent = preset.name;
+        group.appendChild(opt);
+      });
+      presetSelect.appendChild(group);
+    });
+
+    presetSelect.value = currentPresetKey;
+  }
+
+  /** Show the active preset's one-line description under the dropdown. */
+  function updatePresetDescription() {
+    if (!presetDescription) return;
+    const preset = Config.PRESETS[currentPresetKey];
+    presetDescription.textContent = preset?.description || '';
+  }
+
+  /** Refresh the corner label with the active preset name and current chord. */
+  function updateInfoPreset() {
+    const preset = Config.PRESETS[currentPresetKey];
+    if (!preset) return;
+    const symbol = preset.chordProgression?.[currentChordIndex];
+    infoPreset.textContent = symbol
+      ? `${preset.name} (${Config.parseChordSymbol(symbol).displayName})`
+      : preset.name;
+  }
+
+  rebuildPresetDropdown();
+  updatePresetDescription();
 
   // ── Build engine + audio from preset ──
   function buildFromPreset(presetKey) {
@@ -146,14 +198,9 @@
     bpmValue.textContent = cfg.preset.bpm;
 
     // Update info
-    if (cfg.preset.chordProgression && cfg.preset.chordProgression.length > 0) {
-      const firstParsed = Config.parseChordSymbol(
-        cfg.preset.chordProgression[0],
-      );
-      infoPreset.textContent = `${cfg.preset.name} (${firstParsed.displayName})`;
-    } else {
-      infoPreset.textContent = cfg.preset.name;
-    }
+    updateInfoPreset();
+    presetSelect.value = presetKey;
+    updatePresetDescription();
 
     // Sync UI controls with preset
     const ctoCheckbox = document.getElementById('adv-chord-tones-only');
@@ -233,10 +280,14 @@
 
     // Sync Progression fields
     const chordRatioSlider = document.getElementById('adv-chord-ratio');
+    const chordRatioNumber = document.getElementById('adv-chord-ratio-number');
     const chordRatioVal = document.getElementById('adv-chord-ratio-val');
     if (chordRatioSlider) {
       chordRatioSlider.value = cfg.preset.chordRatio ?? 1;
       if (chordRatioVal) chordRatioVal.textContent = cfg.preset.chordRatio ?? 1;
+    }
+    if (chordRatioNumber) {
+      chordRatioNumber.value = cfg.preset.chordRatio ?? 1;
     }
     const progInput = document.getElementById('adv-progression');
     if (progInput) {
@@ -483,9 +534,24 @@ Hit:     ${triggered || '-'}`;
   });
 
   // ── Preset change ──
-  presetSelect.addEventListener('change', async (e) => {
-    const key = e.target.value;
+  /**
+   * Swap the engine, audio and visuals over to a preset.  Shared by the
+   * dropdown and by loading a saved preset from the Presets sidebar.
+   * @param {string} key - key into Config.PRESETS
+   */
+  async function applyPresetKey(key) {
+    if (!Config.PRESETS[key]) return;
     buildFromPreset(key);
+
+    // A saved preset also carries the visuals and scene it was saved with
+    const stored = UserPresets.isUserKey(key)
+      ? UserPresets.get(UserPresets.idFromKey(key))
+      : null;
+    if (stored?.vis) applyVisualSettings(stored.vis);
+    if (stored?.scene) {
+      currentSceneKey = stored.scene;
+      sceneSelect.value = stored.scene;
+    }
 
     // Reset speed multiplier
     if (typeof baselineBpm !== 'undefined') {
@@ -541,7 +607,11 @@ Hit:     ${triggered || '-'}`;
     // Restart engine
     engine.start();
     pauseBtn.textContent = 'Pause';
-  });
+  }
+
+  presetSelect.addEventListener('change', (e) =>
+    applyPresetKey(e.target.value),
+  );
 
   // ── Scene change ──
   sceneSelect.addEventListener('change', (e) => {
@@ -562,7 +632,7 @@ Hit:     ${triggered || '-'}`;
     // if nan, do not set
     if (isNaN(bpm)) return;
     // if bpm is out of range, do not set
-    if (bpm < 0.01 || bpm > 120) return;
+    if (bpm < 0.01 || bpm > 250) return;
     bpmValue.textContent = bpm;
     if (engine) engine.setBpm(bpm);
     if (bpmNumber) bpmNumber.value = bpm;
@@ -572,7 +642,7 @@ Hit:     ${triggered || '-'}`;
     // if nan, do not set
     if (isNaN(bpm)) return;
     // if bpm is out of range, do not set
-    if (bpm < 0.01 || bpm > 120) return;
+    if (bpm < 0.01 || bpm > 250) return;
     bpmValue.textContent = bpm;
     if (engine) engine.setBpm(bpm);
     if (bpmSlider) bpmSlider.value = bpm;
@@ -689,6 +759,61 @@ Hit:     ${triggered || '-'}`;
   });
 
   // ── Visual Settings (live-updating) ──
+  // Declared as tables so the same list drives both the live wiring and the
+  // restore path used when a saved preset brings its own visuals along.
+  const VISUAL_SLIDERS = [
+    { id: 'adv-note-size', valId: 'adv-note-size-val', key: 'noteSize' },
+    {
+      id: 'adv-glow-intensity',
+      valId: 'adv-glow-intensity-val',
+      key: 'glowIntensity',
+    },
+    {
+      id: 'adv-flash-intensity',
+      valId: 'adv-flash-intensity-val',
+      key: 'flashIntensity',
+    },
+    {
+      id: 'adv-trail-length',
+      valId: 'adv-trail-length-val',
+      key: 'trailLength',
+    },
+    {
+      id: 'adv-trail-opacity',
+      valId: 'adv-trail-opacity-val',
+      key: 'trailOpacity',
+    },
+    {
+      id: 'adv-line-opacity',
+      valId: 'adv-line-opacity-val',
+      key: 'lineOpacity',
+    },
+    {
+      id: 'adv-line-thickness',
+      valId: 'adv-line-thickness-val',
+      key: 'lineThickness',
+    },
+    {
+      id: 'adv-path-opacity',
+      valId: 'adv-path-opacity-val',
+      key: 'pathOpacity',
+    },
+    { id: 'adv-color-sat', valId: 'adv-color-sat-val', key: 'colorSaturation' },
+    { id: 'adv-color-bri', valId: 'adv-color-bri-val', key: 'colorBrightness' },
+    { id: 'adv-bg-opacity', valId: 'adv-bg-opacity-val', key: 'bgOpacity' },
+  ];
+  const VISUAL_CHECKBOXES = [
+    { id: 'adv-monochrome', key: 'monochrome' },
+    { id: 'adv-show-paths', key: 'showPaths' },
+    { id: 'adv-show-trails', key: 'showTrails' },
+    { id: 'adv-show-triggers', key: 'showTriggers' },
+    { id: 'adv-show-stars', key: 'showStars' },
+  ];
+  const VISUAL_SELECTS = [
+    { id: 'adv-note-style', key: 'noteStyle' },
+    { id: 'adv-scene-theme', key: 'sceneTheme' },
+  ];
+
   const visualSettings = {
     noteStyle: 'glow',
     noteSize: 1.0,
@@ -710,74 +835,72 @@ Hit:     ${triggered || '-'}`;
     sceneTheme: 'default',
   };
 
-  // Helper: wire a range slider to visualSettings
-  function wireVisualSlider(id, valId, key, divisor = 100) {
+  const VISUAL_SLIDER_DIVISOR = 100;
+
+  VISUAL_SLIDERS.forEach(({ id, valId, key }) => {
     const slider = document.getElementById(id);
     const valSpan = document.getElementById(valId);
     if (!slider) return;
     slider.addEventListener('input', () => {
       const v = parseFloat(slider.value);
-      visualSettings[key] = v / divisor;
+      visualSettings[key] = v / VISUAL_SLIDER_DIVISOR;
       if (valSpan) valSpan.textContent = Math.round(v);
     });
-  }
-  wireVisualSlider('adv-note-size', 'adv-note-size-val', 'noteSize');
-  wireVisualSlider(
-    'adv-glow-intensity',
-    'adv-glow-intensity-val',
-    'glowIntensity',
-  );
-  wireVisualSlider(
-    'adv-flash-intensity',
-    'adv-flash-intensity-val',
-    'flashIntensity',
-  );
-  wireVisualSlider('adv-trail-length', 'adv-trail-length-val', 'trailLength');
-  wireVisualSlider(
-    'adv-trail-opacity',
-    'adv-trail-opacity-val',
-    'trailOpacity',
-  );
-  wireVisualSlider('adv-line-opacity', 'adv-line-opacity-val', 'lineOpacity');
-  wireVisualSlider(
-    'adv-line-thickness',
-    'adv-line-thickness-val',
-    'lineThickness',
-  );
-  wireVisualSlider('adv-path-opacity', 'adv-path-opacity-val', 'pathOpacity');
-  wireVisualSlider('adv-color-sat', 'adv-color-sat-val', 'colorSaturation');
-  wireVisualSlider('adv-color-bri', 'adv-color-bri-val', 'colorBrightness');
-  wireVisualSlider('adv-bg-opacity', 'adv-bg-opacity-val', 'bgOpacity');
+  });
 
-  // Note style dropdown
-  const advNoteStyle = document.getElementById('adv-note-style');
-  if (advNoteStyle) {
-    advNoteStyle.addEventListener('change', () => {
-      visualSettings.noteStyle = advNoteStyle.value;
-    });
-  }
-
-  // Scene theme dropdown
-  const advSceneTheme = document.getElementById('adv-scene-theme');
-  if (advSceneTheme) {
-    advSceneTheme.addEventListener('change', () => {
-      visualSettings.sceneTheme = advSceneTheme.value;
-    });
-  }
-
-  // Checkboxes
-  function wireVisualCheckbox(id, key) {
+  VISUAL_CHECKBOXES.forEach(({ id, key }) => {
     const cb = document.getElementById(id);
     if (!cb) return;
     cb.addEventListener('change', () => {
       visualSettings[key] = cb.checked;
     });
+  });
+
+  VISUAL_SELECTS.forEach(({ id, key }) => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    sel.addEventListener('change', () => {
+      visualSettings[key] = sel.value;
+    });
+  });
+
+  /**
+   * Overwrite the live visual settings from a saved snapshot and push the
+   * values back into the sidebar controls.  Unknown/missing keys are left at
+   * whatever they currently are, so older saves stay loadable.
+   * @param {object} vis
+   */
+  function applyVisualSettings(vis) {
+    if (!vis) return;
+
+    VISUAL_SLIDERS.forEach(({ id, valId, key }) => {
+      if (typeof vis[key] !== 'number' || Number.isNaN(vis[key])) return;
+      visualSettings[key] = vis[key];
+      const slider = document.getElementById(id);
+      const valSpan = document.getElementById(valId);
+      const shown = vis[key] * VISUAL_SLIDER_DIVISOR;
+      if (slider) slider.value = shown;
+      if (valSpan) valSpan.textContent = Math.round(shown);
+    });
+
+    VISUAL_CHECKBOXES.forEach(({ id, key }) => {
+      if (typeof vis[key] !== 'boolean') return;
+      visualSettings[key] = vis[key];
+      const cb = document.getElementById(id);
+      if (cb) cb.checked = vis[key];
+    });
+
+    VISUAL_SELECTS.forEach(({ id, key }) => {
+      if (typeof vis[key] !== 'string') return;
+      const sel = document.getElementById(id);
+      // Ignore values from a build that had options we no longer offer
+      if (sel && !Array.from(sel.options).some((o) => o.value === vis[key])) {
+        return;
+      }
+      visualSettings[key] = vis[key];
+      if (sel) sel.value = vis[key];
+    });
   }
-  wireVisualCheckbox('adv-monochrome', 'monochrome');
-  wireVisualCheckbox('adv-show-paths', 'showPaths');
-  wireVisualCheckbox('adv-show-trails', 'showTrails');
-  wireVisualCheckbox('adv-show-triggers', 'showTriggers');
-  wireVisualCheckbox('adv-show-stars', 'showStars');
 
   // Connect-neighbors checkbox updates the preset live
   const advConnectNeighbors = document.getElementById('adv-connect-neighbors');
@@ -797,12 +920,304 @@ Hit:     ${triggered || '-'}`;
 
   advancedBtn.addEventListener('click', () => {
     sidebar.classList.add('open');
+    presetsSidebar.classList.remove('open');
     controlsPanel.classList.remove('open');
   });
 
   closeAdvanced.addEventListener('click', () => {
     sidebar.classList.remove('open');
   });
+
+  // ── Presets Sidebar ──
+  const presetsBtn = document.getElementById('presets-btn');
+  const presetsSidebar = document.getElementById('presets-sidebar');
+  const closePresets = document.getElementById('close-presets');
+  const presetSaveName = document.getElementById('preset-save-name');
+  const presetSaveDesc = document.getElementById('preset-save-desc');
+  const presetSaveBtn = document.getElementById('preset-save-btn');
+  const presetSaveStatus = document.getElementById('preset-save-status');
+  const presetList = document.getElementById('preset-list');
+  const presetEmpty = document.getElementById('preset-empty');
+  const presetCount = document.getElementById('preset-count');
+  const presetExportBtn = document.getElementById('preset-export-btn');
+  const presetImportBtn = document.getElementById('preset-import-btn');
+  const presetImportFile = document.getElementById('preset-import-file');
+
+  let statusTimer = null;
+
+  /** Flash a line of feedback under the save button. */
+  function setPresetStatus(message, isError = false) {
+    if (!presetSaveStatus) return;
+    presetSaveStatus.textContent = message;
+    presetSaveStatus.classList.toggle('error', isError);
+    clearTimeout(statusTimer);
+    if (message) {
+      statusTimer = setTimeout(() => {
+        presetSaveStatus.textContent = '';
+        presetSaveStatus.classList.remove('error');
+      }, 4000);
+    }
+  }
+
+  /**
+   * Capture everything currently playing as a plain preset object.
+   * The live preset is the source of truth (the Advanced sidebar only takes
+   * effect on "Generate & Apply", so its unapplied edits are deliberately
+   * ignored here — what you hear is what you save).
+   */
+  function snapshotCurrentSetup() {
+    const preset = Config.PRESETS[currentPresetKey] || {};
+    const snapshot = {
+      ...preset,
+      bpm: engine ? engine.bpm : preset.bpm,
+      vis: { ...visualSettings },
+      scene: currentSceneKey,
+    };
+
+    // Without a manual definition the engine's own ratios are the exact truth,
+    // including anything the generator produced.
+    if (!preset.manualVoices && engine) {
+      snapshot.ratios = engine.voices.map((v) => v.ratio);
+    }
+    return snapshot;
+  }
+
+  /** Load a saved preset by its stored id. */
+  async function loadUserPreset(id) {
+    const stored = UserPresets.get(id);
+    if (!stored) return;
+    UserPresets.mergeIntoConfig(Config.PRESETS);
+    rebuildPresetDropdown();
+    await applyPresetKey(UserPresets.configKey(id));
+    renderPresetList();
+  }
+
+  /** Redraw the saved-preset list. */
+  function renderPresetList() {
+    if (!presetList) return;
+    const saved = UserPresets.list();
+    presetList.innerHTML = '';
+
+    if (presetCount) {
+      presetCount.textContent = saved.length ? `(${saved.length})` : '';
+    }
+    if (presetEmpty) {
+      presetEmpty.hidden = saved.length > 0;
+      if (!UserPresets.available) {
+        presetEmpty.hidden = false;
+        presetEmpty.textContent =
+          'This browser is blocking local storage, so presets cannot be saved here.';
+      }
+    }
+
+    saved.forEach((p) => {
+      const key = UserPresets.configKey(p.id);
+      const item = document.createElement('li');
+      item.className = 'preset-item';
+      if (key === currentPresetKey) item.classList.add('active');
+
+      const name = document.createElement('div');
+      name.className = 'preset-item-name';
+      name.textContent = p.name;
+      item.appendChild(name);
+
+      if (p.description) {
+        const desc = document.createElement('p');
+        desc.className = 'preset-item-desc';
+        desc.textContent = p.description;
+        item.appendChild(desc);
+      }
+
+      const voiceCount = p.manualVoices
+        ? (Config.parseManualVoices(p.manualVoices) || []).length
+        : (p.ratios || []).length;
+      const meta = document.createElement('div');
+      meta.className = 'preset-item-meta';
+      meta.textContent = [
+        `${voiceCount} voices`,
+        `${p.bpm} BPM`,
+        p.scene || currentSceneKey,
+      ].join(' · ');
+      item.appendChild(meta);
+
+      const actions = document.createElement('div');
+      actions.className = 'preset-item-actions';
+
+      const loadBtn = document.createElement('button');
+      loadBtn.textContent = 'Load';
+      loadBtn.addEventListener('click', () => loadUserPreset(p.id));
+      actions.appendChild(loadBtn);
+
+      const renameBtn = document.createElement('button');
+      renameBtn.textContent = 'Rename';
+      renameBtn.addEventListener('click', () => {
+        const next = window.prompt('New name for this preset:', p.name);
+        if (next === null) return;
+        if (!next.trim()) {
+          setPresetStatus('A preset needs a name.', true);
+          return;
+        }
+        UserPresets.rename(p.id, next);
+        UserPresets.mergeIntoConfig(Config.PRESETS);
+        rebuildPresetDropdown();
+        updatePresetDescription();
+        if (key === currentPresetKey) updateInfoPreset();
+        renderPresetList();
+      });
+      actions.appendChild(renameBtn);
+
+      const overwriteBtn = document.createElement('button');
+      overwriteBtn.textContent = 'Update';
+      overwriteBtn.title = 'Replace this preset with what is playing now';
+      overwriteBtn.addEventListener('click', () => {
+        if (!window.confirm(`Replace "${p.name}" with the current setup?`)) {
+          return;
+        }
+        const snapshot = snapshotCurrentSetup();
+        snapshot.name = p.name;
+        snapshot.description = p.description;
+        UserPresets.save(snapshot, p.id);
+        UserPresets.mergeIntoConfig(Config.PRESETS);
+        rebuildPresetDropdown();
+        renderPresetList();
+        setPresetStatus(`Updated "${p.name}".`);
+      });
+      actions.appendChild(overwriteBtn);
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'danger';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.addEventListener('click', () => {
+        if (!window.confirm(`Delete "${p.name}"? This cannot be undone.`)) {
+          return;
+        }
+        const wasActive = key === currentPresetKey;
+        UserPresets.remove(p.id);
+        UserPresets.mergeIntoConfig(Config.PRESETS);
+        // A deleted preset that is still playing keeps playing, but the
+        // dropdown has to fall back to something that still exists.
+        if (wasActive) currentPresetKey = firstPresetKey;
+        rebuildPresetDropdown();
+        updatePresetDescription();
+        renderPresetList();
+        setPresetStatus(`Deleted "${p.name}".`);
+      });
+      actions.appendChild(deleteBtn);
+
+      item.appendChild(actions);
+      presetList.appendChild(item);
+    });
+  }
+
+  presetsBtn.addEventListener('click', () => {
+    presetsSidebar.classList.add('open');
+    sidebar.classList.remove('open');
+    controlsPanel.classList.remove('open');
+    renderPresetList();
+    if (!presetSaveName.value) {
+      const active = Config.PRESETS[currentPresetKey];
+      presetSaveName.placeholder = active
+        ? `e.g. ${active.name} (my version)`
+        : 'e.g. Midnight Drift';
+    }
+  });
+
+  closePresets.addEventListener('click', () => {
+    presetsSidebar.classList.remove('open');
+  });
+
+  presetSaveBtn.addEventListener('click', () => {
+    if (!engine) {
+      setPresetStatus('Start the engine first.', true);
+      return;
+    }
+    const name = presetSaveName.value.trim();
+    if (!name) {
+      setPresetStatus('Give the preset a name.', true);
+      presetSaveName.focus();
+      return;
+    }
+    if (!UserPresets.available) {
+      setPresetStatus(
+        'This browser is blocking local storage, so the preset cannot be saved.',
+        true,
+      );
+      return;
+    }
+
+    const clash = UserPresets.findByName(name);
+    if (clash && !window.confirm(`"${name}" already exists. Replace it?`)) {
+      return;
+    }
+
+    const snapshot = snapshotCurrentSetup();
+    snapshot.name = name;
+    snapshot.description = presetSaveDesc.value.trim();
+
+    const record = UserPresets.save(snapshot, clash ? clash.id : null);
+    UserPresets.mergeIntoConfig(Config.PRESETS);
+
+    // Follow the save: the new preset becomes the selected one
+    currentPresetKey = UserPresets.configKey(record.id);
+    rebuildPresetDropdown();
+    updatePresetDescription();
+    updateInfoPreset();
+    renderPresetList();
+
+    presetSaveName.value = '';
+    presetSaveDesc.value = '';
+    setPresetStatus(`Saved "${record.name}".`);
+  });
+
+  presetSaveName.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') presetSaveBtn.click();
+  });
+  presetSaveDesc.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') presetSaveBtn.click();
+  });
+
+  presetExportBtn.addEventListener('click', () => {
+    if (UserPresets.list().length === 0) {
+      setPresetStatus('There is nothing to export yet.', true);
+      return;
+    }
+    const blob = new Blob([UserPresets.exportJSON()], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0, 10);
+    link.href = url;
+    link.download = `polyrhythm-presets-${stamp}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setPresetStatus('Exported.');
+  });
+
+  presetImportBtn.addEventListener('click', () => presetImportFile.click());
+
+  presetImportFile.addEventListener('change', async () => {
+    const file = presetImportFile.files && presetImportFile.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const { added, error } = UserPresets.importJSON(text);
+      if (error) {
+        setPresetStatus(error, true);
+      } else {
+        UserPresets.mergeIntoConfig(Config.PRESETS);
+        rebuildPresetDropdown();
+        renderPresetList();
+        setPresetStatus(`Imported ${added} preset${added === 1 ? '' : 's'}.`);
+      }
+    } catch (err) {
+      setPresetStatus('Could not read that file.', true);
+    }
+    // Allow re-picking the same file
+    presetImportFile.value = '';
+  });
+
+  renderPresetList();
 
   // Ambient Octave slider
   const advAmbientOctave = document.getElementById('adv-ambient-octave');
@@ -827,14 +1242,63 @@ Hit:     ${triggered || '-'}`;
     }
   });
 
-  // Range updates
-  ['adv-voice-count', 'adv-chord-ratio'].forEach((id) => {
-    const el = document.getElementById(id);
-    const val = document.getElementById(id + '-val');
-    el.addEventListener('input', () => (val.textContent = el.value));
-  });
+  // Voice Count label update
+  const advVoiceCountSlider = document.getElementById('adv-voice-count');
+  const advVoiceCountVal = document.getElementById('adv-voice-count-val');
+  if (advVoiceCountSlider && advVoiceCountVal) {
+    advVoiceCountSlider.addEventListener('input', () => {
+      advVoiceCountVal.textContent = advVoiceCountSlider.value;
+    });
+  }
 
-  // Removed invalid listeners for ratio-start/end-val since they don't exist in new UI
+  // Copy generator (voice count + ratio range) → manual voices textarea
+  const copyGeneratorBtn = document.getElementById('adv-copy-generator');
+  if (copyGeneratorBtn) {
+    copyGeneratorBtn.addEventListener('click', () => {
+      const count = parseInt(
+        document.getElementById('adv-voice-count').value,
+        10,
+      );
+      const rStart = parseFloat(
+        document.getElementById('adv-ratio-start').value,
+      );
+      const rEnd = parseFloat(document.getElementById('adv-ratio-end').value);
+      if (Number.isNaN(count) || Number.isNaN(rStart) || Number.isNaN(rEnd)) {
+        return;
+      }
+      const ratios = Config.createSmoothRatios(count, rStart, rEnd);
+      const manualVoices = document.getElementById('adv-manual-voices');
+      manualVoices.value = ratios
+        .map((r) => parseFloat(r.toFixed(4)).toString())
+        .join(', ');
+      manualVoices.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+
+  // Chord Ratio slider ↔ number input sync
+  const advChordRatioSlider = document.getElementById('adv-chord-ratio');
+  const advChordRatioNumber = document.getElementById('adv-chord-ratio-number');
+  const advChordRatioVal = document.getElementById('adv-chord-ratio-val');
+  const applyChordRatio = (value) => {
+    const ratio = parseFloat(value);
+    if (Number.isNaN(ratio)) return;
+    if (advChordRatioSlider) advChordRatioSlider.value = ratio;
+    if (advChordRatioNumber) advChordRatioNumber.value = ratio;
+    if (advChordRatioVal) advChordRatioVal.textContent = ratio;
+    if (engine) engine.chordRatio = ratio;
+    const preset = Config.PRESETS[currentPresetKey];
+    if (preset) preset.chordRatio = ratio;
+  };
+  if (advChordRatioSlider) {
+    advChordRatioSlider.addEventListener('input', () =>
+      applyChordRatio(advChordRatioSlider.value),
+    );
+  }
+  if (advChordRatioNumber) {
+    advChordRatioNumber.addEventListener('input', () =>
+      applyChordRatio(advChordRatioNumber.value),
+    );
+  }
 
   // ── Mixer Drawer ──
   const mixerBtn = document.getElementById('mixer-btn');
@@ -1285,6 +1749,8 @@ Hit:     ${triggered || '-'}`;
     // Inject custom preset
     Config.PRESETS['custom'] = {
       name: 'Custom Configuration',
+      category: 'custom',
+      description: 'Unsaved — save it from the Presets panel to keep it',
       ratios,
       manualVoices: manualInput.trim() || '',
       scale: scaleKey,
@@ -1303,20 +1769,10 @@ Hit:     ${triggered || '-'}`;
     };
 
     // Update UI
-    let customOpt = presetSelect.querySelector('option[value="custom"]');
-    if (!customOpt) {
-      customOpt = document.createElement('option');
-      customOpt.value = 'custom';
-      customOpt.textContent = 'Custom Configuration';
-      presetSelect.appendChild(customOpt);
-    }
-    presetSelect.value = 'custom';
-    if (chordProgression.length > 0) {
-      const firstParsed = Config.parseChordSymbol(chordProgression[0]);
-      infoPreset.textContent = `Custom (${firstParsed.displayName})`;
-    } else {
-      infoPreset.textContent = 'Custom Configuration';
-    }
+    rebuildPresetDropdown();
+    updatePresetDescription();
+    updateInfoPreset();
+    renderPresetList();
 
     // Reinit Audio & Renderer
     await audioLayer.reinit(engine.voices);
